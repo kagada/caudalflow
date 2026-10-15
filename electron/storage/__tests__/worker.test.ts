@@ -66,7 +66,7 @@ describe('SQLite worker lifecycle and legacy migration', () => {
     await request('close'); await worker.terminate();
     const moved = join(root, 'moved.caudalflow'); renameSync(created.metadata.filePath, moved); start();
     expect(await request('open', { filename: moved })).toMatchObject({ metadata: { id: 'move-me', filePath: moved } });
-    expect(await request<unknown[]>('history', { id: 'move-me' })).toHaveLength(2);
+    expect(await request<unknown[]>('history', { id: 'move-me' })).toHaveLength(1);
     expect(readdirSync(join(root, 'local-history')).filter((name) => name.endsWith('.sqlite'))).toHaveLength(1);
   });
 });

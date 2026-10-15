@@ -48,6 +48,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const message: ChatMessage = { id, role, content, timestamp: Date.now(), images, triggeredBy };
     const conv = get().conversations[nodeId];
     if (!conv) return id;
+    if (role === 'assistant') message.replyToId = conv.messages.findLast((item) => item.role === 'user')?.id;
     set({
       conversations: {
         ...get().conversations,

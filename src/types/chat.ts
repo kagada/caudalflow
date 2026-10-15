@@ -14,6 +14,8 @@ export interface ChatMessage {
     mimeType: string;
   }[];
   triggeredBy?: string;
+  // 回复明确关联到提问，避免删除问题后仅凭相邻位置错误配对。
+  replyToId?: string;
 }
 
 export interface Conversation {

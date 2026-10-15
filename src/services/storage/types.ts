@@ -11,9 +11,10 @@ export interface HistoryEntry {
   createdAt: number;
   label: string;
   bytes: number;
-  side: 'before' | 'after';
-  conversations: { id: string; topic: string }[];
 }
+
+export interface HistoryDetail extends HistoryEntry { before: WorkspaceData; after: WorkspaceData }
+export interface HistorySelection { documentIds?: string[]; attributesOnly?: boolean; relationIds?: string[] }
 
 export interface DocumentVersion { id: string; createdAt: number; preview: string }
 export interface SavedWorkspace { revision: number; versions?: Record<string, string> }

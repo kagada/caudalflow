@@ -97,6 +97,27 @@ async function runSmokeTest(window, app, storage) {
     assert(await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"撤销内容操作\"]').disabled"));
     stored = await storage.call('load', { id: workspaceId });
     assert.equal(stored.data.conversations[nodeId].messages.at(-1).content, 'SQLite 流式回复成功');
+    // 标题相同而地址不同：必须在历史原文对比中直接看到两侧 URL。
+    stored.data.conversations[nodeId].messages.at(-1).content = '[同一标题](https://old.example)\n\n原段落';
+    await storage.call('save', { id: workspaceId, data: stored.data, expectedRevision: stored.revision, label: '历史测试：旧原文' });
+    stored = await storage.call('load', { id: workspaceId });
+    stored.data.conversations[nodeId].messages.at(-1).content = '[同一标题](https://new.example)\n\n新段落';
+    await storage.call('save', { id: workspaceId, data: stored.data, expectedRevision: stored.revision, label: '历史测试：链接变化' });
+    loaded = once(window.webContents, 'did-finish-load'); window.webContents.reload(); await loaded;
+    await waitFor(window, "!!window.caudalflowFlush && document.body.innerText.includes('新段落')");
+    await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"本地历史\"]').click()");
+    await waitFor(window, "!!document.querySelector('[aria-label=\"本地历史\"] [data-raw-diff]') && document.querySelector('[aria-label=\"原文差异\"]').textContent.includes('https://old.example') && document.querySelector('[aria-label=\"原文差异\"]').textContent.includes('https://new.example')");
+    const visibleRecords = await window.webContents.executeJavaScript("[...document.querySelectorAll('[aria-label=\"修改记录\"] button')].filter(button => button.textContent.includes('历史测试：链接变化')).length");
+    assert.equal(visibleRecords, 1);
+    assert(await window.webContents.executeJavaScript("document.querySelector('[aria-label=\"涉及内容\"]').textContent.includes('SQLite 聊天自检')"));
+    const historyScreenshot = path.join(app.getPath('userData'), 'local-history-smoke.png');
+    await fs.writeFile(historyScreenshot, (await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript("window.confirm=()=>true; [...document.querySelectorAll('[aria-label=\"本地历史\"] button')].find(button=>button.textContent==='还原').click()");
+    await waitFor(window, "!document.querySelector('[role=\"dialog\"][aria-label=\"本地历史\"]') && document.body.innerText.includes('原段落')");
+    await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    stored = await storage.call('load', { id: workspaceId });
+    assert(stored.data.conversations[nodeId].messages.at(-1).content.includes('https://old.example'));
+    assert(await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"撤销内容操作\"]').disabled"));
     const history = await storage.call('history', { id: workspaceId }); assert(history.length > 0);
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
@@ -105,7 +126,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'portable workspace excludes personal history'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'portable workspace excludes personal history'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

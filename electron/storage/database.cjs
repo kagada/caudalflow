@@ -236,25 +236,38 @@ class WorkspaceDatabase {
   }
 
   listHistory() {
-    return this.db.prepare('SELECT id,created_at AS createdAt,label,bytes,before_json,after_json FROM personal.history ORDER BY created_at DESC,rowid DESC').all().flatMap(({ before_json, after_json, ...row }) => ['after', 'before'].map((side) => ({ ...row, side, conversations: JSON.parse(side === 'before' ? before_json : after_json).nodes.map((node) => ({ id: node.id, topic: node.data.topic })) })));
+    // 列表只返回元信息；选中记录后才读取快照，避免把全部历史和图片一次传给界面。
+    return this.db.prepare('SELECT id,created_at AS createdAt,label,bytes FROM personal.history ORDER BY created_at DESC,rowid DESC').all();
+  }
+
+  readHistory(id) {
+    const row = this.db.prepare('SELECT id,created_at AS createdAt,label,bytes,before_json,after_json FROM personal.history WHERE id=?').get(id);
+    if (!row) throw new Error('本地历史已被清理或不存在');
+    const { before_json, after_json, ...entry } = row;
+    return { ...entry, before: JSON.parse(before_json), after: JSON.parse(after_json) };
   }
 
   // 恢复不是可撤销操作；保留现有卡片的布局，删除或新增卡片使用历史记录中的布局。
-  restoreHistory(id, side = 'after', conversationId) {
+  restoreHistory(id, side = 'after', conversationId, selection) {
+    if (!['before', 'after'].includes(side)) throw new Error('还原版本无效');
     const row = this.db.prepare('SELECT before_json,after_json FROM personal.history WHERE id=?').get(id);
     if (!row) throw new Error('本地历史已不存在');
     let data = JSON.parse(side === 'before' ? row.before_json : row.after_json);
     const currentData = this.load().data;
     const current = new Map(currentData.nodes.map((node) => [node.id, node]));
-    if (conversationId) {
+    if (conversationId && selection) {
+      data = require('./historyRestore.cjs').restoreSelection(currentData, JSON.parse(row.before_json), JSON.parse(row.after_json), side, conversationId, selection);
+    } else if (conversationId) {
       const node = data.nodes.find((item) => item.id === conversationId);
-      if (!node) throw new Error('该历史版本中没有此会话');
+      const recorded = [...JSON.parse(row.before_json).nodes, ...JSON.parse(row.after_json).nodes].some((item) => item.id === conversationId);
+      if (!recorded) throw new Error('该记录不涉及此会话');
       const ids = new Set([...currentData.nodes.map((item) => item.id), conversationId]);
       data = {
-        nodes: [...currentData.nodes.filter((item) => item.id !== conversationId), node],
-        conversations: { ...currentData.conversations, [conversationId]: data.conversations[conversationId] ?? { nodeId: conversationId, messages: [], isStreaming: false } },
-        edges: [...currentData.edges.filter((edge) => edge.source !== conversationId && edge.target !== conversationId), ...data.edges.filter((edge) => (edge.source === conversationId || edge.target === conversationId) && ids.has(edge.source) && ids.has(edge.target))],
+        nodes: [...currentData.nodes.filter((item) => item.id !== conversationId), ...(node ? [node] : [])],
+        conversations: { ...currentData.conversations, ...(node ? { [conversationId]: data.conversations[conversationId] ?? { nodeId: conversationId, messages: [], isStreaming: false } } : {}) },
+        edges: [...currentData.edges.filter((edge) => edge.source !== conversationId && edge.target !== conversationId), ...(node ? data.edges.filter((edge) => (edge.source === conversationId || edge.target === conversationId) && ids.has(edge.source) && ids.has(edge.target)) : [])],
       };
+      if (!node) delete data.conversations[conversationId];
     }
     data.nodes = data.nodes.map((node) => {
       const layout = current.get(node.id);

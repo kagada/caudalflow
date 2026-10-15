@@ -6,7 +6,7 @@ import type { WorkspaceData, WorkspaceMetadata } from '../../types/workspace';
 import { desktopStorage as storage } from './desktop';
 import { contentKey, copyWorkspace, nodeContent } from './snapshot';
 import { createContentHistory, describeContentChange } from './commands';
-import type { HistoryEntry, SavedWorkspace, StoredWorkspace } from './types';
+import type { HistoryDetail, HistoryEntry, HistorySelection, SavedWorkspace, StoredWorkspace } from './types';
 import type { DocumentVersion } from './types';
 import type { ChatMessage } from '../../types/chat';
 import { cancelAllGenerations } from '../streamLifecycle';
@@ -331,16 +331,24 @@ export async function listDesktopHistory(): Promise<HistoryEntry[]> {
   return activeId ? storage.request('history', { id: activeId }) : [];
 }
 
+// 捕获工作区 ID，异步返回结果只能由该工作区的历史窗口使用。
+export async function readDesktopHistory(historyId: string, workspaceId: string): Promise<HistoryDetail> {
+  if (workspaceId !== activeId) throw new Error('工作区已切换，请重新打开本地历史');
+  return storage.request('historyDetail', { id: workspaceId, historyId });
+}
+
 export async function clearDesktopHistory() {
   return perform(async () => { if (activeId) await storage.request('clearHistory', { id: activeId }); });
 }
 
-export async function restoreDesktopHistory(historyId: string, side: 'before' | 'after' = 'after', conversationId?: string) {
+export async function restoreDesktopHistory(historyId: string, side: 'before' | 'after' = 'after', conversationId?: string, selection?: HistorySelection) {
   return perform(async () => {
     if (!activeId) return;
-    cancelAllGenerations();
-    activate(await storage.request<StoredWorkspace>('restore', { id: activeId, historyId, side, conversationId }), useWorkspaceStore.getState().getActiveWorkspace());
+    // 先停止生成并排空旧保存队列，避免晚到的草稿在还原后覆盖历史内容。
+    await finishGenerations();
+    activate(await storage.request<StoredWorkspace>('restore', { id: activeId, historyId, side, conversationId, selection }), useWorkspaceStore.getState().getActiveWorkspace());
     history().clear(); updateButtons();
+    return true;
   });
 }
 
@@ -355,7 +363,7 @@ export async function selectDocumentVersion(nodeId: string, documentId: string, 
     const message = await storage.request<ChatMessage>('version', { id: activeId, documentId, versionId });
     const chat = useChatStore.getState();
     // 完整替换，旧版本没有的图片和思考内容也必须清除，不能与当前版本合并。
-    chat.setConversationMessages(nodeId, chat.getMessages(nodeId).map((item) => item.id === documentId ? message : item));
+    chat.setConversationMessages(nodeId, chat.getMessages(nodeId).map((item) => item.id === documentId ? { ...message, replyToId: message.replyToId ?? item.replyToId } : item));
     if (scheduled) capture();
     await flushDesktopStorage();
   });

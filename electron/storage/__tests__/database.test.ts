@@ -137,6 +137,49 @@ describe('SQLite workspace and independent local history', () => {
     expect(workspace.listVersions('a1')).toHaveLength(50);
   });
 
+  it('lists each operation once and loads its before/after snapshots on demand', () => {
+    workspace.save(example());
+    const entries = workspace.listHistory(); expect(entries).toHaveLength(1);
+    expect(entries[0].before).toBeUndefined(); expect(entries[0].side).toBeUndefined();
+    const detail = workspace.readHistory(entries[0].id);
+    expect(detail.before.nodes).toEqual([]); expect(detail.after.nodes).toHaveLength(1);
+    expect(() => workspace.readHistory('missing')).toThrow('清理或不存在');
+  });
+
+  it('restores a selected question and reply without reverting later independent questions or labels', () => {
+    const before = example(); before.conversations.c1.messages[1].replyToId = 'q1'; workspace.save(before);
+    const after = structuredClone(before); after.conversations.c1.messages[1].content = '重答'; workspace.save(after);
+    const entry = workspace.listHistory()[0];
+    const current = structuredClone(after); current.nodes[0].data.label = '后来标签'; current.nodes[0].position.x = 900;
+    current.conversations.c1.messages.push({ id: 'later-answer', role: 'assistant', content: '同问题的新回复', replyToId: 'q1', timestamp: 300 }, { id: 'q2', role: 'user', content: '另一个问题', timestamp: 400 });
+    workspace.save(current);
+    const count = workspace.listHistory().length;
+    workspace.restoreHistory(entry.id, 'before', 'c1', { documentIds: ['q1', 'a1'] });
+    const restored = workspace.load().data;
+    expect(restored.conversations.c1.messages.map((message: { id: string }) => message.id)).toEqual(['q1', 'a1', 'q2']);
+    expect(restored.conversations.c1.messages[1].content).toBe('原回答');
+    expect(restored.nodes[0].data.label).toBe('后来标签'); expect(restored.nodes[0].position.x).toBe(900);
+    expect(workspace.listHistory()).toHaveLength(count);
+  });
+
+  it('restores only attributes touched by the selected operation', () => {
+    const before = example(); workspace.save(before);
+    const after = structuredClone(before); after.nodes[0].data.label = '新标签'; workspace.save(after);
+    const entry = workspace.listHistory()[0];
+    after.nodes[0].data.done = false; workspace.save(after);
+    workspace.restoreHistory(entry.id, 'before', 'c1', { attributesOnly: true });
+    expect(workspace.load().data.nodes[0].data).toMatchObject({ label: '学习', done: false });
+  });
+
+  it('restores absence of a newly created conversation and rejects unrelated selection IDs', () => {
+    workspace.save(example()); const entry = workspace.listHistory()[0];
+    const revision = workspace.revision;
+    expect(() => workspace.restoreHistory(entry.id, 'before', 'c1', { documentIds: ['unrelated'] })).toThrow('不属于');
+    expect(workspace.revision).toBe(revision);
+    workspace.restoreHistory(entry.id, 'before', 'c1');
+    expect(workspace.load().data.nodes).toHaveLength(0);
+  });
+
   it('rejects invalid input and unrelated databases without changing current content', () => {
     workspace.save(example());
     const invalid = example(); invalid.conversations.c1.messages.push({ ...invalid.conversations.c1.messages[0] });

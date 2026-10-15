@@ -27,6 +27,7 @@ export function reviseMessage(nodeId: string, messageId: string, prompt: string 
   const next = messages[index + 1];
   const original = source.role === 'assistant' ? source : next?.role === 'assistant' ? next : undefined;
   const target: ChatMessage = { ...(original ?? { id: nanoid(), role: 'assistant', timestamp: Date.now() }), content: '', reasoning: undefined, generationStatus: undefined,
+    replyToId: source.role === 'user' ? source.id : original?.replyToId,
     // 桌面版本由 SQLite 管理，运行时不再把所有旧正文嵌进当前消息。
     previousVersions: isDesktopStorage() ? undefined : original ? [...(original.previousVersions ?? []), { content: original.content, reasoning: original.reasoning, timestamp: original.timestamp }] : [] };
   const history = messages.slice(0, source.role === 'assistant' ? index : index + 1);
