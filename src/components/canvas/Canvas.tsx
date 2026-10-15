@@ -1,3 +1,4 @@
+import { prepareFirstQuestion } from '../../services/conversationTitle';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -246,6 +247,7 @@ export function Canvas() {
         const messages = store.getMessages(newNodeId);
 
         store.addMessage(newNodeId, 'user', action);
+        prepareFirstQuestion(newNodeId, systemPrompt);
         store.addMessage(newNodeId, 'assistant', '');
         store.setStreaming(newNodeId, true);
 

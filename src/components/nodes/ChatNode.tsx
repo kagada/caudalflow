@@ -1,3 +1,4 @@
+import { prepareFirstQuestion } from '../../services/conversationTitle';
 import { createPortal } from 'react-dom';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -250,6 +251,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
         const messages = store.getMessages(newNodeId);
 
         store.addMessage(newNodeId, "user", firstMessage);
+        prepareFirstQuestion(newNodeId, systemPrompt);
         store.addMessage(newNodeId, "assistant", "");
         store.setStreaming(newNodeId, true);
 

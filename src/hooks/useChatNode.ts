@@ -1,3 +1,4 @@
+import { prepareFirstQuestion } from '../services/conversationTitle';
 import { useCallback, useRef } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { streamChat } from '../services/llm';
@@ -56,6 +57,8 @@ export function useChatNode(nodeId: string, topic: string, parentNodeId?: string
         },
         ...messages,
       ];
+
+      prepareFirstQuestion(nodeId, systemPrompt);
 
       // Create placeholder assistant message
       store.addMessage(nodeId, 'assistant', '');

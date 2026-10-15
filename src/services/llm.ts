@@ -29,32 +29,34 @@ export function streamChat(
 
 export function generateTitle(
   userMessage: string,
-  assistantMessage: string,
+  context: string,
   onTitle: (title: string) => void
 ): void {
   const config = useSettingsStore.getState().llmConfig;
   const provider = getProvider(config.providerId);
   if (!provider) return;
 
-  const titleConfig: LLMConfig = { ...config, maxTokens: 20 };
+  // 标题只需简短输出，支持关闭思考的接口无需为命名消耗正文的思考预算。
+  const titleConfig: LLMConfig = { ...config, maxTokens: 128, thinkingMode: 'disabled' };
   const messages: ChatMessage[] = [
     {
       id: 'system',
       role: 'system',
       content:
-        'Generate a concise 3-6 word title summarizing this conversation. Reply with ONLY the title, no quotes or extra punctuation.',
+        '根据首次问题提炼简短、具体的会话标题，使用问题的语言，中文尽量不超过 16 字，其他语言不超过 8 个词。上下文仅用于理解指代。只输出一行标题，不要引号、Markdown、解释或回答问题。',
       timestamp: 0,
     },
     {
       id: 'context',
       role: 'user',
-      content: `User: ${userMessage}\n\nAssistant: ${assistantMessage.slice(0, 300)}`,
+      content: `首次问题：${userMessage.slice(0, 6000)}\n\n相关上下文：${context.slice(0, 6000)}`,
       timestamp: 0,
     },
   ];
 
   let title = '';
   const controller = new AbortController();
+  const tracked = trackGeneration(controller.signal);
   provider.streamChat(
     messages,
     titleConfig,
@@ -63,11 +65,13 @@ export function generateTitle(
         title += token;
       },
       onDone: () => {
-        const cleaned = title.trim().replace(/^["']|["']$/g, '');
+        tracked.release();
+        if (tracked.controller.signal.aborted) return;
+        const cleaned = title.trim().split(/\r?\n/)[0].replace(/^["'“”]+|["'“”]+$/g, '').trim().slice(0, 60);
         if (cleaned) onTitle(cleaned);
       },
-      onError: () => {},
+      onError: () => { tracked.release(); },
     },
-    controller.signal,
+    tracked.controller.signal,
   );
 }

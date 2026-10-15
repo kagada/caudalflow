@@ -152,7 +152,7 @@ class WorkspaceDatabase {
   }
 
   // expectedRevision 防止另一窗口或旧请求覆盖更新后的工作区。
-  save(data, { expectedRevision, label = '修改内容', history = true, historyBefore, historyAfter } = {}) {
+  save(data, { expectedRevision, label = '修改内容', history = true, historyBefore, historyAfter, mergeCreationId } = {}) {
     validateData(data);
     if (expectedRevision !== undefined && expectedRevision !== this.revision) throw new Error('工作区已被其他操作更新，请重新打开后再修改');
     const previous = this.load().data;
@@ -205,8 +205,27 @@ class WorkspaceDatabase {
         this.db.prepare('DELETE FROM document_versions WHERE id IN (SELECT id FROM document_versions WHERE document_id=? AND id NOT IN (SELECT version_id FROM conversation_documents) ORDER BY rowid DESC LIMIT -1 OFFSET 49)').run(row.id);
       }
       if (history && (!streaming || historyAfter) && before !== after) {
-        const beforeJson = JSON.stringify(historyBefore ?? previous);
+        let beforeJson = JSON.stringify(historyBefore ?? previous);
         const afterJson = JSON.stringify(historyAfter ?? data);
+        // 合并必须重新核对数据库里最后一条记录，不能跨越其他操作或改写旧回答。
+        const last = mergeCreationId && this.db.prepare('SELECT * FROM personal.history ORDER BY created_at DESC,rowid DESC LIMIT 1').get();
+        if (last?.label === '创建会话或分支') {
+          const start = JSON.parse(last.before_json);
+          const created = JSON.parse(last.after_json);
+          const currentBefore = historyBefore ?? previous;
+          const currentAfter = historyAfter ?? data;
+          const key = (value) => JSON.stringify(canonical(contentOf(value)));
+          const without = (value) => ({ ...value, nodes: value.nodes.filter((node) => node.id !== mergeCreationId), edges: value.edges.filter((edge) => edge.source !== mergeCreationId && edge.target !== mergeCreationId) });
+          const questions = (currentAfter.conversations[mergeCreationId]?.messages ?? []).filter((message) => message.role !== 'system');
+          if (!start.nodes.some((node) => node.id === mergeCreationId) && created.nodes.some((node) => node.id === mergeCreationId) &&
+            !(created.conversations[mergeCreationId]?.messages ?? []).some((message) => message.role !== 'system') &&
+            questions.length === 1 && questions[0].role === 'user' &&
+            key(created) === key(currentBefore) && key(without(created)) === key(start) && key(without(currentBefore)) === key(without(currentAfter)) &&
+            JSON.stringify(canonical(contentOf(currentBefore).edges)) === JSON.stringify(canonical(contentOf(currentAfter).edges))) {
+            beforeJson = last.before_json;
+            this.db.prepare('DELETE FROM personal.history WHERE id=?').run(last.id);
+          }
+        }
         this.db.prepare('INSERT INTO personal.history VALUES (?,?,?,?,?,?)').run(randomUUID(), Date.now(), label, beforeJson, afterJson, Buffer.byteLength(beforeJson) + Buffer.byteLength(afterJson));
         this.pruneHistory();
       }

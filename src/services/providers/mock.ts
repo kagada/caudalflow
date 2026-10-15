@@ -14,6 +14,11 @@ const MOCK_RESPONSES: Record<string, string[]> = {
 function getResponseForTopic(messages: ChatMessage[]): string {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
 
+  // 开发模式也返回短标题，避免把整段模拟回答当作会话名称。
+  if (messages[0]?.role === 'system' && messages[0].content.includes('根据首次问题提炼')) {
+    return lastUserMsg?.content.split('\n\n相关上下文：')[0].replace(/^首次问题：/, '').replace(/\s+/g, ' ').trim().slice(0, 16) || '图片提问';
+  }
+
   const topic =
     lastUserMsg?.content ||
     (lastUserMsg?.images && lastUserMsg.images.length > 0

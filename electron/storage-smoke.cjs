@@ -18,11 +18,20 @@ async function waitFor(window, expression) {
 async function runSmokeTest(window, app, storage) {
   const timeout = setTimeout(() => app.exit(1), 60000);
   let requests = 0;
+  let titleRequests = 0;
   const server = createServer(async (request, response) => {
     try {
       assert.equal(request.url, '/v1/chat/completions');
       assert.equal(request.headers.authorization, 'Bearer desktop-test-key');
-      for await (const chunk of request) void chunk;
+      let body = '';
+      for await (const chunk of request) body += chunk;
+      const input = JSON.parse(body);
+      if (input.messages[0]?.content.includes('根据首次问题提炼')) {
+        titleRequests++;
+        response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        response.end('data:{"choices":[{"delta":{"content":"SQLite 聊天自检标题"},"finish_reason":"stop"}]}\n\ndata:[DONE]\n');
+        return;
+      }
       const answer = ++requests === 1 ? '回复成功' : '回复成功·重答';
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
       response.write('data:{"choices":[{"delta":{"reasoning_content":"桌面思考测试"}}]}\n\n');
@@ -49,12 +58,21 @@ async function runSmokeTest(window, app, storage) {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     })()`);
     await waitFor(window, "document.body.innerText.includes('SQLite 流式回复成功')");
+    await waitFor(window, "document.body.innerText.includes('SQLite 聊天自检标题')");
     await window.webContents.executeJavaScript('window.caudalflowFlush()');
     const registry = await storage.call('list');
     const workspaceId = registry[0].id;
     assert(registry[0].filePath.endsWith('.caudalflow'));
     let stored = await storage.call('load', { id: workspaceId });
     const nodeId = stored.data.nodes[0].id;
+    assert.equal(stored.data.nodes[0].data.topic, 'SQLite 聊天自检标题');
+    assert.equal(titleRequests, 1);
+    const initialHistory = await storage.call('history', { id: workspaceId });
+    const creation = initialHistory.find((entry) => entry.label === '创建会话并提问');
+    assert(creation);
+    const creationDetail = await storage.call('historyDetail', { id: workspaceId, historyId: creation.id });
+    assert.equal(creationDetail.before.nodes.length, 0);
+    assert.equal(creationDetail.after.conversations[nodeId].messages.length, 1);
     assert.equal(stored.data.conversations[nodeId].messages.at(-1).content, 'SQLite 流式回复成功');
     assert(stored.data.conversations[nodeId].messages.at(-1).versionId);
     assert(await window.webContents.executeJavaScript("document.querySelector('details').textContent.includes('桌面思考测试')"));

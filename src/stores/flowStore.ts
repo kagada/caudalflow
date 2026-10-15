@@ -73,7 +73,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       id,
       type: 'chat',
       position,
-      data,
+      data: { titleSource: 'pending', ...data },
       style: { width: 400, height: 500 },
       selected: true,
       zIndex: Math.max(0, ...get().nodes.map((node) => node.zIndex ?? 0)) + 1,
@@ -94,7 +94,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   updateNodeData: (id, data) => {
     set({
       nodes: get().nodes.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, ...data } } : n
+        n.id === id ? { ...n, data: { ...n.data, ...data, ...(data.topic !== undefined && data.titleSource === undefined ? { titleSource: 'manual' as const } : {}) } } : n
       ),
     });
   },

@@ -100,7 +100,7 @@ function completedSnapshot(data: WorkspaceData): WorkspaceData {
     const old = settled.nodes.find((item) => item.id === node.id);
     result.nodes = result.nodes.filter((item) => item.id !== node.id);
     if (old) {
-      result.nodes.push({ ...node, data: old.data });
+      result.nodes.push(node);
       if (settled.conversations[node.id]) result.conversations[node.id] = settled.conversations[node.id];
       else delete result.conversations[node.id];
     } else {
@@ -113,7 +113,7 @@ function completedSnapshot(data: WorkspaceData): WorkspaceData {
   return result;
 }
 
-function capture() {
+function capture(firstQuestionId?: string) {
   clearTimeout(draftTimer); draftTimer = undefined;
   clearTimeout(layoutTimer); layoutTimer = undefined;
   scheduled = false;
@@ -123,9 +123,13 @@ function capture() {
   const complete = completedSnapshot(actual);
   const before = settled;
   const changed = contentKey(before) !== contentKey(complete);
-  const label = changed ? describeContentChange(before, complete) : '保存布局或草稿';
+  let label = changed ? describeContentChange(before, complete) : '保存布局或草稿';
+  if (changed && firstQuestionId) label = before.nodes.some((node) => node.id === firstQuestionId) ? '首次提问' : '创建会话并提问';
+  let mergeCreationId: string | undefined;
   if (changed) {
-    history().record(before, complete, label);
+    history().record(before, complete, label, firstQuestionId);
+    mergeCreationId = history().mergedCreationId;
+    if (mergeCreationId) label = '创建会话并提问';
     updateButtons();
   }
   settled = copyWorkspace(complete);
@@ -133,15 +137,21 @@ function capture() {
   void enqueue(async () => {
     const error = useStorageStatus.getState().error;
     if (error) throw new Error(error);
-    const response = await storage.request<SavedWorkspace>('save', { id, data: actual, expectedRevision: revisions.get(id), label, history: changed, historyBefore: changed ? before : undefined, historyAfter: changed ? complete : undefined });
+    const response = await storage.request<SavedWorkspace>('save', { id, data: actual, expectedRevision: revisions.get(id), label, mergeCreationId, history: changed, historyBefore: changed ? before : undefined, historyAfter: changed ? complete : undefined });
     revisions.set(id, response.revision);
     acceptSavedVersions(id, actual, response);
   }).catch(report);
 }
 
-function schedule() {
+// 在回复占位符出现前保存首次问题，使异步回复与其他会话的操作保持真实顺序。
+export function recordFirstQuestion(nodeId: string) {
+  pendingConversations.delete(nodeId);
+  capture(nodeId);
+}
+
+function schedule(immediate = false) {
   if (applying || scheduled || !useStorageStatus.getState().ready) return;
-  if (Object.values(useChatStore.getState().conversations).some((conversation) => conversation.isStreaming)) {
+  if (!immediate && Object.values(useChatStore.getState().conversations).some((conversation) => conversation.isStreaming)) {
     draftTimer ??= setTimeout(() => { draftTimer = undefined; capture(); }, 1000);
     return;
   }
@@ -168,13 +178,14 @@ function observeStores() {
   flowUnsubscribe = useFlowStore.subscribe((next, previous) => {
     if (applying || !hasPersistedFlowChanges(next, previous)) return;
     const contentChanged = next.nodes.length !== previous.nodes.length || next.edges !== previous.edges || next.nodes.some((node, index) => node.id !== previous.nodes[index]?.id || JSON.stringify(nodeContent(node)) !== JSON.stringify(nodeContent(previous.nodes[index])));
-    if (contentChanged) schedule();
+    // 标题、标签和新建等明确动作立即排队，不能被另一个会话的 token 节流合并。
+    if (contentChanged) schedule(true);
     else {
       // 拖动和自动测量不能每帧排队写整份界面投影；布局停下后再保存。
-      clearTimeout(layoutTimer); layoutTimer = setTimeout(capture, 500);
+      clearTimeout(layoutTimer); layoutTimer = setTimeout(() => capture(), 500);
     }
   });
-  chatUnsubscribe = useChatStore.subscribe(schedule);
+  chatUnsubscribe = useChatStore.subscribe(() => schedule());
   window.caudalflowFlush = flushDesktopStorage;
   window.caudalflowPrepareClose = async () => {
     useStorageStatus.setState({ busy: true });

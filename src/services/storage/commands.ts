@@ -32,12 +32,12 @@ export function describeContentChange(before: WorkspaceData, after: WorkspaceDat
   for (const node of after.nodes) {
     const old = before.nodes.find((item) => item.id === node.id);
     if (!old) continue;
-    if (old.data.topic !== node.data.topic) return '修改会话名称';
+    if (old.data.topic !== node.data.topic) return node.data.titleSource === 'generated' ? '自动生成会话标题' : '修改会话名称';
     if (Boolean(old.data.done) !== Boolean(node.data.done)) return '修改搞定状态';
     if (old.data.label !== node.data.label || old.data.color !== node.data.color) return '修改会话标签';
     const previous = before.conversations[node.id]?.messages ?? [];
     const next = after.conversations[node.id]?.messages ?? [];
-    if (next.length > previous.length) return '添加问题或回答';
+    if (next.length > previous.length) return next.slice(previous.length).every((message) => message.role === 'assistant') ? '回复完成' : '添加问题或回答';
     if (next.length < previous.length) return '删除文档';
     if (JSON.stringify(next) !== JSON.stringify(previous)) return '修改文档或切换版本';
   }
@@ -48,10 +48,28 @@ export function describeContentChange(before: WorkspaceData, after: WorkspaceDat
 export function createContentHistory() {
   const undo: Command[] = [];
   const redo: Command[] = [];
+  let mergedCreationId: string | undefined;
   return {
-    record(before: WorkspaceData, after: WorkspaceData, label = '修改内容') {
+    record(before: WorkspaceData, after: WorkspaceData, label = '修改内容', firstQuestionId?: string) {
+      mergedCreationId = undefined;
       if (contentKey(before) === contentKey(after)) return false;
-      undo.push(commandData(before, after, label));
+      const command = commandData(before, after, label);
+      const previous = undo.at(-1);
+      // 只合并紧邻的空会话创建；回答和标题即使晚到也不会回填旧操作。
+      if (firstQuestionId && !redo.length && previous?.label === '创建会话或分支' &&
+        previous.before.nodes.length === 0 && previous.after.nodes.length === 1 && previous.after.nodes[0].id === firstQuestionId &&
+        previous.before.edges.length === 0 && previous.after.edges.every((edge) => edge.source === firstQuestionId || edge.target === firstQuestionId) &&
+        command.before.nodes.length === 1 && command.after.nodes.length === 1 && command.after.nodes[0].id === firstQuestionId &&
+        command.before.edges.length === 0 && command.after.edges.length === 0 &&
+        !(before.conversations[firstQuestionId]?.messages ?? []).some((message) => message.role !== 'system') &&
+        (after.conversations[firstQuestionId]?.messages ?? []).filter((message) => message.role !== 'system').length === 1 &&
+        after.conversations[firstQuestionId]?.messages.at(-1)?.role === 'user' &&
+        contentKey({ ...previous.after, edges: [] }) === contentKey(command.before)) {
+        undo.pop();
+        undo.push({ ...command, before: previous.before, beforeOrder: previous.beforeOrder,
+          after: { ...command.after, edges: previous.after.edges }, label: '创建会话并提问' });
+        mergedCreationId = firstQuestionId;
+      } else undo.push(command);
       if (undo.length > 50) undo.shift();
       redo.length = 0;
       return true;
@@ -71,5 +89,6 @@ export function createContentHistory() {
     clear() { undo.length = 0; redo.length = 0; },
     get canUndo() { return undo.length > 0; },
     get canRedo() { return redo.length > 0; },
+    get mergedCreationId() { return mergedCreationId; },
   };
 }

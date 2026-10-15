@@ -30,8 +30,10 @@ function attributes(data: WorkspaceData, id: string) {
   const node = data.nodes.find((item) => item.id === id);
   if (!node) return undefined;
   const values = nodeContent(node);
-  const names: Record<string, string> = { topic: '名称', label: '标签', done: '搞定状态', color: '颜色', parentNodeId: '来源会话', parentNodeIds: '来源会话列表', branchText: '分支文字', mergeAction: '总结要求' };
+  const names: Record<string, string> = { topic: '名称', titleSource: '标题来源', label: '标签', done: '搞定状态', color: '颜色', parentNodeId: '来源会话', parentNodeIds: '来源会话列表', branchText: '分支文字', mergeAction: '总结要求' };
   values.done = Boolean(values.done);
+  const titleSources: Record<string, string> = { pending: '待命名', temporary: '首次问题节选', generated: 'AI 自动命名', manual: '手动命名' };
+  if (typeof values.titleSource === 'string') values.titleSource = titleSources[values.titleSource] ?? values.titleSource;
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [names[key] ?? key, value]));
 }
 

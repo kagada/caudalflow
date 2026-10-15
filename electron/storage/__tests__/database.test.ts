@@ -22,6 +22,35 @@ describe('SQLite workspace and independent local history', () => {
   });
   afterEach(() => { workspace?.close(); rmSync(root, { recursive: true, force: true }); });
 
+  it('merges an adjacent empty creation and first question without including a later reply', () => {
+    const created = example(); created.conversations.c1.messages = [];
+    workspace.save(created, { label: '创建会话或分支' });
+    const asked = structuredClone(created); asked.nodes[0].data.topic = '临时问题';
+    asked.conversations.c1.messages.push({ id: 'q1', role: 'user', content: '问题', timestamp: 1 });
+    workspace.save(asked, { label: '创建会话并提问', mergeCreationId: 'c1' });
+    expect(workspace.listHistory()).toHaveLength(1);
+    const event = workspace.readHistory(workspace.listHistory()[0].id);
+    expect(event.before.nodes).toHaveLength(0);
+    expect(event.after.conversations.c1.messages).toHaveLength(1);
+    const answered = structuredClone(asked); answered.conversations.c1.messages.push({ id: 'a1', role: 'assistant', content: '回答', timestamp: 2 });
+    workspace.save(answered, { label: '回复完成' });
+    expect(workspace.listHistory()).toHaveLength(2);
+    expect(workspace.readHistory(workspace.listHistory()[1].id).after.conversations.c1.messages).toHaveLength(1);
+    workspace.restoreHistory(workspace.listHistory()[1].id, 'before');
+    expect(workspace.load().data.nodes).toHaveLength(0);
+  });
+
+  it('refuses a requested merge across intervening content changes', () => {
+    const created = example(); created.conversations.c1.messages = [];
+    workspace.save(created, { label: '创建会话或分支' });
+    const marked = structuredClone(created); marked.nodes[0].data.label = '之后的修改';
+    workspace.save(marked, { label: '修改会话标签' });
+    const asked = structuredClone(marked); asked.conversations.c1.messages.push({ id: 'q1', role: 'user', content: '问题', timestamp: 1 });
+    workspace.save(asked, { label: '首次提问', mergeCreationId: 'c1' });
+    expect(workspace.listHistory()).toHaveLength(3);
+    expect(workspace.readHistory(workspace.listHistory()[0].id).before.nodes).toHaveLength(1);
+  });
+
   it('stores documents, immutable versions, selected versions and relational layouts', () => {
     workspace.save(example());
     const first = workspace.load();

@@ -54,6 +54,30 @@ describe('desktop command and persistence coordination', () => {
     await runtime.replayDesktopCommand('redo'); expect(chat.useChatStore.getState().getMessages('c1').at(-1)?.content).toBe('部分回答');
   });
 
+  it('saves the first question before streaming and keeps title and other conversation edits in chronological order', async () => {
+    const id = flow.useFlowStore.getState().addChatNode({ x: 10, y: 10 }, { topic: '新建对话' });
+    chat.useChatStore.getState().initConversation(id); await runtime.flushDesktopStorage();
+    const store = chat.useChatStore.getState();
+    store.addMessage(id, 'user', '首次提问');
+    flow.useFlowStore.getState().updateNodeData(id, { topic: '临时题目', titleSource: 'temporary' });
+    runtime.recordFirstQuestion(id);
+    store.addMessage(id, 'assistant', ''); store.setStreaming(id, true);
+    await runtime.flushDesktopStorage();
+    const first = fake.request.mock.calls.filter(([action, payload]) => action === 'save' && payload.label === '创建会话并提问').at(-1)![1];
+    expect(first.mergeCreationId).toBe(id);
+    expect(first.historyAfter.conversations[id].messages).toHaveLength(1);
+    flow.useFlowStore.getState().updateNodeData('c1', { done: true }); await runtime.flushDesktopStorage();
+    flow.useFlowStore.getState().updateNodeData(id, { topic: 'AI 短标题', titleSource: 'generated' }); await runtime.flushDesktopStorage();
+    const title = fake.request.mock.calls.filter(([action, payload]) => action === 'save' && payload.label === '自动生成会话标题').at(-1)![1];
+    expect(title.historyAfter.nodes.find((node: { id: string }) => node.id === 'c1').data.done).toBe(true);
+    expect(title.historyAfter.conversations[id].messages).toHaveLength(1);
+    store.appendToLastMessage(id, '回复结果'); store.setStreaming(id, false); await runtime.flushDesktopStorage();
+    await runtime.replayDesktopCommand('undo');
+    expect(chat.useChatStore.getState().getMessages(id)).toHaveLength(1);
+    expect(flow.useFlowStore.getState().nodes.find((node) => node.id === 'c1')?.data.done).toBe(true);
+    expect(flow.useFlowStore.getState().nodes.find((node) => node.id === id)?.data.topic).toBe('AI 短标题');
+  });
+
   it('restores deleted content at its most recent layout position', async () => {
     flow.useFlowStore.getState().onNodesChange([{ type: 'position', id: 'c1', position: { x: 900, y: 800 } }]); await runtime.flushDesktopStorage();
     flow.useFlowStore.getState().removeNode('c1'); chat.useChatStore.getState().removeConversation('c1'); await runtime.flushDesktopStorage();
