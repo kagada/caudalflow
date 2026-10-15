@@ -13,10 +13,11 @@ interface Props {
   explore: (text: string, prompt: string) => void;
   revise: (id: string, prompt?: string) => void;
   remove: (id: string) => void;
+  versions?: (id: string) => void;
 }
 
 // 菜单使用选区快照；有选区时不暴露消息级删除或重答，避免跨气泡选择误操作。
-export function MessageContextMenu({ target, busy, close, explore, revise, remove }: Props) {
+export function MessageContextMenu({ target, busy, close, explore, revise, remove, versions }: Props) {
   const { t } = useTranslation();
   const [dialog, setDialog] = useState<'prompt' | 'delete' | null>(null);
   const [prompt, setPrompt] = useState(t('menu.defaultPrompt'));
@@ -83,6 +84,7 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
               </div>}
             </div>
           </> : <>
+            {versions && <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => versions(target.message.id))}>文档版本</button>}
             <button role="menuitem" disabled={busy || target.message.role === 'system'} className={buttonClass} onClick={() => perform(() => revise(target.message.id))}>{t('menu.regenerate')}</button>
             {target.message.role === 'assistant' && <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => setDialog('prompt')}>{t('menu.rewrite')}</button>}
             <button role="menuitem" disabled={busy} className={`${buttonClass} text-red-400`} onClick={() => setDialog('delete')}>{t('menu.delete')}</button>

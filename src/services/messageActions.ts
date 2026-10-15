@@ -4,6 +4,7 @@ import { useFlowStore } from '../stores/flowStore';
 import { streamChat } from './llm';
 import { getRootSystemPrompt, getBranchSystemPrompt, getMergeSystemPrompt } from '../utils/systemPrompts';
 import type { ChatMessage } from '../types/chat';
+import { isDesktopStorage } from './storage/desktop';
 
 function systemPrompt(nodeId: string): string {
   const node = useFlowStore.getState().nodes.find((item) => item.id === nodeId);
@@ -25,8 +26,9 @@ export function reviseMessage(nodeId: string, messageId: string, prompt: string 
   const source = messages[index];
   const next = messages[index + 1];
   const original = source.role === 'assistant' ? source : next?.role === 'assistant' ? next : undefined;
-  const target: ChatMessage = { ...(original ?? { id: nanoid(), role: 'assistant', timestamp: Date.now() }), content: '', reasoning: undefined,
-    previousVersions: original ? [...(original.previousVersions ?? []), { content: original.content, reasoning: original.reasoning, timestamp: original.timestamp }] : [] };
+  const target: ChatMessage = { ...(original ?? { id: nanoid(), role: 'assistant', timestamp: Date.now() }), content: '', reasoning: undefined, generationStatus: undefined,
+    // 桌面版本由 SQLite 管理，运行时不再把所有旧正文嵌进当前消息。
+    previousVersions: isDesktopStorage() ? undefined : original ? [...(original.previousVersions ?? []), { content: original.content, reasoning: original.reasoning, timestamp: original.timestamp }] : [] };
   const history = messages.slice(0, source.role === 'assistant' ? index : index + 1);
   const context: ChatMessage[] = [{ id: 'system', role: 'system', content: systemPrompt(nodeId), timestamp: 0 }, ...history];
   if (prompt) context.push({ id: nanoid(), role: 'user', content: `请按以下要求重构这条回答：${prompt}\n\n原回答：\n${source.content}`, timestamp: Date.now() });

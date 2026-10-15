@@ -1,0 +1,90 @@
+/** @vitest-environment jsdom */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WorkspaceData } from '../../../types/workspace';
+
+const fake = vi.hoisted(() => ({ request: vi.fn(), save: vi.fn(), load: vi.fn() }));
+vi.mock('../desktop', () => ({ desktopStorage: fake, isDesktopStorage: () => true }));
+
+describe('desktop command and persistence coordination', () => {
+  let runtime: typeof import('../runtime');
+  let flow: typeof import('../../../stores/flowStore');
+  let chat: typeof import('../../../stores/chatStore');
+  let stored: WorkspaceData;
+  let revision: number;
+  let failSave: boolean;
+  const metadata = { id: 'w1', name: '测试', createdAt: 0, updatedAt: 0 };
+  beforeEach(async () => {
+    vi.resetModules(); localStorage.clear();
+    revision = 1; failSave = false;
+    stored = { nodes: [{ id: 'c1', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '主题', done: false } }], edges: [], conversations: { c1: { nodeId: 'c1', messages: [{ id: 'm1', role: 'assistant', content: '初始', timestamp: 1 }], isStreaming: false } } };
+    fake.load.mockImplementation(async () => ({ metadata, revision, data: structuredClone(stored) }));
+    fake.request.mockImplementation(async (action: string, payload: { data?: WorkspaceData; expectedRevision?: number } = {}) => {
+      if (action === 'bootstrap') return { workspaces: [metadata] };
+      if (action === 'save') {
+        if (failSave) throw new Error('磁盘不可写');
+        expect(payload.expectedRevision).toBe(revision);
+        stored = structuredClone(payload.data!); return { revision: ++revision };
+      }
+      if (action === 'restore') return { metadata, revision: ++revision, data: structuredClone(stored) };
+      return [];
+    });
+    fake.save.mockImplementation(async (_id, data, expectedRevision) => fake.request('save', { data, expectedRevision }));
+    runtime = await import('../runtime'); flow = await import('../../../stores/flowStore'); chat = await import('../../../stores/chatStore');
+    await runtime.initializeDesktopStorage();
+  });
+  afterEach(() => { runtime.disposeDesktopStorage(); delete window.caudalflowFlush; delete window.caudalflowPrepareClose; });
+
+  it('records done state and preserves later layout through undo and redo', async () => {
+    flow.useFlowStore.getState().updateNodeData('c1', { done: true }); await runtime.flushDesktopStorage();
+    flow.useFlowStore.getState().onNodesChange([{ type: 'position', id: 'c1', position: { x: 500, y: 600 } }]); await runtime.flushDesktopStorage();
+    await runtime.replayDesktopCommand('undo');
+    expect(flow.useFlowStore.getState().nodes[0].data.done).toBe(false);
+    expect(flow.useFlowStore.getState().nodes[0].position).toEqual({ x: 500, y: 600 });
+    await runtime.replayDesktopCommand('redo'); expect(flow.useFlowStore.getState().nodes[0].data.done).toBe(true);
+  });
+
+  it('groups streaming tokens into one complete content operation', async () => {
+    const store = chat.useChatStore.getState();
+    store.addMessage('c1', 'user', '新问题'); store.addMessage('c1', 'assistant', ''); store.setStreaming('c1', true);
+    store.appendToLastMessage('c1', '部分'); await runtime.flushDesktopStorage();
+    expect(runtime.useStorageStatus.getState().canUndo).toBe(false);
+    store.appendToLastMessage('c1', '回答'); store.setStreaming('c1', false); await runtime.flushDesktopStorage();
+    expect(runtime.useStorageStatus.getState().canUndo).toBe(true);
+    await runtime.replayDesktopCommand('undo'); expect(chat.useChatStore.getState().getMessages('c1')).toHaveLength(1);
+    await runtime.replayDesktopCommand('redo'); expect(chat.useChatStore.getState().getMessages('c1').at(-1)?.content).toBe('部分回答');
+  });
+
+  it('restores deleted content at its most recent layout position', async () => {
+    flow.useFlowStore.getState().onNodesChange([{ type: 'position', id: 'c1', position: { x: 900, y: 800 } }]); await runtime.flushDesktopStorage();
+    flow.useFlowStore.getState().removeNode('c1'); chat.useChatStore.getState().removeConversation('c1'); await runtime.flushDesktopStorage();
+    await runtime.replayDesktopCommand('undo');
+    expect(flow.useFlowStore.getState().nodes[0].position).toEqual({ x: 900, y: 800 });
+    expect(chat.useChatStore.getState().getMessages('c1')[0].id).toBe('m1');
+  });
+
+  it('does not discard unsaved runtime data on a failed write and allows retry', async () => {
+    failSave = true; flow.useFlowStore.getState().updateNodeData('c1', { label: '未保存' });
+    await expect(runtime.flushDesktopStorage()).rejects.toThrow('磁盘不可写');
+    expect(stored.nodes[0].data.label).toBeUndefined(); expect(flow.useFlowStore.getState().nodes[0].data.label).toBe('未保存');
+    failSave = false; await runtime.retryDesktopStorage();
+    expect(stored.nodes[0].data.label).toBe('未保存'); expect(runtime.useStorageStatus.getState().error).toBeNull();
+  });
+
+  it('clears undo and redo after restoring local history', async () => {
+    flow.useFlowStore.getState().updateNodeData('c1', { done: true }); await runtime.flushDesktopStorage();
+    await runtime.restoreDesktopHistory('h1');
+    expect(runtime.useStorageStatus.getState()).toMatchObject({ canUndo: false, canRedo: false });
+  });
+
+  it('switches the entire document version including removal of newer attachments', async () => {
+    const chatStore = chat.useChatStore.getState();
+    chatStore.addOrUpdateMessage('c1', { ...chatStore.getMessages('c1')[0], content: '带图片的新版本', reasoning: '新思考', images: [{ mimeType: 'image/png', base64: 'cGljdHVyZQ==' }] });
+    await runtime.flushDesktopStorage();
+    const previous = fake.request.getMockImplementation()!;
+    fake.request.mockImplementation((action, payload) => action === 'version' ? Promise.resolve({ id: 'm1', role: 'assistant', content: '初始', timestamp: 1, versionId: 'old' }) : previous(action, payload));
+    await runtime.selectDocumentVersion('c1', 'm1', 'old');
+    const selected = chat.useChatStore.getState().getMessages('c1')[0];
+    expect(selected.content).toBe('初始'); expect(selected.images).toBeUndefined(); expect(selected.reasoning).toBeUndefined();
+    await runtime.replayDesktopCommand('undo'); expect(chat.useChatStore.getState().getMessages('c1')[0].images).toHaveLength(1);
+  });
+});

@@ -83,14 +83,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
       }),
-      // Migrate nanoid workspace IDs → UUID so LangGraph accepts them as threadIds
+      // 旧 ID 必须保留给数据库迁移和引用，不能因不符合 Agent 的 UUID 约束而清空工作区。
       migrate: (persisted: unknown) => {
         const state = persisted as { workspaces: WorkspaceMetadata[]; activeWorkspaceId: string | null };
-        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (state.workspaces?.some((w) => !UUID_RE.test(w.id))) {
-          // Reset to fresh state — old nanoid workspaces can't be migrated cleanly
-          return { workspaces: [], activeWorkspaceId: null };
-        }
         return state;
       },
       version: 2,

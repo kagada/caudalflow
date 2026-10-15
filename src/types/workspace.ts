@@ -7,6 +7,8 @@ export interface WorkspaceMetadata {
   createdAt: number;
   updatedAt: number;
   description?: string;
+  filePath?: string;
+  unavailable?: boolean;
 }
 
 export interface WorkspaceData {

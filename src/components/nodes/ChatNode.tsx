@@ -16,6 +16,7 @@ import { ChatMessageList } from './ChatMessageList';
 import { ChatInput } from './ChatInput';
 import { ChatNodeDeleteConfirmation } from './ChatNodeDeleteConfirmation';
 import { FloatingNodePanel, type PanelPoint } from '../ui/FloatingNodePanel';
+import { deferConversationCommand } from '../../services/storage/runtime';
 
 const PALETTE_COLORS = [
   '#22c55e',
@@ -225,6 +226,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       });
 
       flowStore.addEdge(id, newNodeId, selectedText);
+      deferConversationCommand(newNodeId);
 
       // Initialize conversation with branch context
       const chatStore = useChatStore.getState();

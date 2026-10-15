@@ -27,12 +27,19 @@ async function proxyAPI(request, fetchRemote) {
 }
 
 // 使用固定来源提供界面与流式 API，既保留本地存储，也不占用任何 HTTP 端口。
-function createProtocolHandler(distDir, fetchRemote) {
+function createProtocolHandler(distDir, fetchRemote, storage) {
   return async (request) => {
     try {
       const url = new URL(request.url);
       if (url.host !== 'caudalflow') return new Response('Forbidden', { status: 403 });
       if (request.initiatorOrigin && request.initiatorOrigin !== APP_ORIGIN) return new Response('Forbidden', { status: 403 });
+      if (url.pathname === '/api/storage' && storage) {
+        if (request.method !== 'POST' || !request.headers.get('content-type')?.startsWith('application/json')) return new Response('Method not allowed', { status: 405 });
+        const origin = request.headers.get('origin');
+        if (origin && origin !== APP_ORIGIN) return new Response('Forbidden', { status: 403 });
+        const { action, payload } = await request.json();
+        return Response.json({ result: await storage.handle(action, payload) });
+      }
       if (url.pathname === '/api/proxy') return await proxyAPI(request, fetchRemote);
       if (url.pathname.startsWith('/api/')) {
         return Response.json({ error: '此功能需要额外的 Agent 后端；桌面版节点聊天可直接使用自定义 API。' }, { status: 503 });

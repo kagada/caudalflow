@@ -6,6 +6,9 @@ dist
 dist-ssr
 release/
 
+# Local data inspection exports (may contain personal conversations and settings)
+/temp/
+
 # Logs
 logs
 *.log

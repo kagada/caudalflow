@@ -2,6 +2,8 @@ export type MessageRole = 'user' | 'assistant' | 'system';
 
 export interface ChatMessage {
   id: string;
+  versionId?: string;
+  generationStatus?: 'complete' | 'interrupted' | 'failed';
   role: MessageRole;
   content: string;
   reasoning?: string;

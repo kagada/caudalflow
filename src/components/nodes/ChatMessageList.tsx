@@ -10,6 +10,8 @@ import { useTextSelection } from '../../hooks/useTextSelection';
 import { ChatMessage } from './ChatMessage';
 import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
+import { DocumentVersions } from './DocumentVersions';
+import { isDesktopStorage } from '../../services/storage/desktop';
 
 interface ChatMessageListProps {
   nodeId: string;
@@ -38,6 +40,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
   const { selection, handleMouseUp, clearSelection } = useTextSelection(containerRef);
   const [popupOpen, setPopupOpen] = useState(false);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [versionDocument, setVersionDocument] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const contextMenu = (event: React.MouseEvent) => {
@@ -90,7 +93,8 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
           </div>
         )}
       </div>
-      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {
+      {versionDocument && <DocumentVersions nodeId={nodeId} documentId={versionDocument} close={() => setVersionDocument(null)} />}
+      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isDesktopStorage() ? setVersionDocument : undefined} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {
         const store = useChatStore.getState();
         store.setConversationMessages(nodeId, store.getMessages(nodeId).filter((message) => message.id !== id));
       }} />}

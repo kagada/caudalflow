@@ -6,6 +6,8 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import type { WorkspaceData, WorkspaceFile } from '../types/workspace';
 import { hasPersistedFlowChanges } from '../utils/flowPersistence';
 import { calculateAutoLayoutPositions } from '../utils/nodeLayout';
+import { isDesktopStorage } from '../services/storage/desktop';
+import { createDesktopWorkspace, exportDesktopWorkspace, initializeDesktopStorage } from '../services/storage/runtime';
 
 const DEBOUNCE_MS = 1000;
 
@@ -105,6 +107,7 @@ function loadFromStorage(workspaceId: string) {
 // Standalone functions — safe to call from any component without duplicating hook effects
 
 export function exportWorkspace() {
+  if (isDesktopStorage()) { void exportDesktopWorkspace(); return; }
   const workspace = useWorkspaceStore.getState().getActiveWorkspace();
   if (!workspace) return;
 
@@ -162,6 +165,7 @@ export function importWorkspace(file: File) {
       }
 
       // Always create a new workspace (no overwrite risk)
+      if (isDesktopStorage()) { void createDesktopWorkspace(name, { ...data, nodes: sanitizeNodes(data.nodes, data.edges ?? []) }); return; }
       const wsStore = useWorkspaceStore.getState();
 
       // Flush-save current workspace first
@@ -186,21 +190,23 @@ export function importWorkspace(file: File) {
   reader.readAsText(file);
 }
 
-export function usePersistence() {
+function useLegacyPersistence(enabled: boolean) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const prevWorkspaceRef = useRef<string | null>(null);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
 
   // Initialize: ensure at least one workspace exists
   useEffect(() => {
+    if (!enabled) return;
     const { workspaces, createWorkspace } = useWorkspaceStore.getState();
     if (workspaces.length === 0) {
       createWorkspace('My Workspace');
     }
-  }, []);
+  }, [enabled]);
 
   // Handle workspace switches (including first load)
   useEffect(() => {
+    if (!enabled) return;
     if (!activeWorkspaceId) return;
 
     const prev = prevWorkspaceRef.current;
@@ -214,7 +220,7 @@ export function usePersistence() {
     // Load the new workspace
     loadFromStorage(activeWorkspaceId);
     prevWorkspaceRef.current = activeWorkspaceId;
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, enabled]);
 
   // Debounced auto-save on state changes
   const debouncedSave = useCallback(() => {
@@ -226,6 +232,7 @@ export function usePersistence() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     const unsubFlow = useFlowStore.subscribe((next, previous) => {
       if (hasPersistedFlowChanges(next, previous)) debouncedSave();
     });
@@ -243,5 +250,14 @@ export function usePersistence() {
       unsubChat();
       clearTimeout(timeoutRef.current);
     };
-  }, [debouncedSave]);
+  }, [debouncedSave, enabled]);
+}
+
+// 桌面切到 SQLite，浏览器仍保持旧行为，不在此次重构中提前实现第二套数据库。
+export function usePersistence() {
+  const desktop = isDesktopStorage();
+  useLegacyPersistence(!desktop);
+  useEffect(() => {
+    if (desktop) void initializeDesktopStorage().catch(() => { /* 错误由持久化状态面板展示。 */ });
+  }, [desktop]);
 }

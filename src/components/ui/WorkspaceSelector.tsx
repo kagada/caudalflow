@@ -6,6 +6,9 @@ import { useFlowStore } from '../../stores/flowStore';
 import { useChatStore } from '../../stores/chatStore';
 import { exportWorkspace, importWorkspace } from '../../hooks/usePersistence';
 import { exportMarkdown } from '../../utils/markdownExport';
+import { isDesktopStorage } from '../../services/storage/desktop';
+import { createDesktopWorkspace, deleteDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace } from '../../services/storage/runtime';
+import { StorageControls } from './StorageControls';
 
 export function WorkspaceSelector() {
   const { t } = useTranslation();
@@ -53,7 +56,8 @@ export function WorkspaceSelector() {
     if (!active) return;
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== active.name) {
-      renameWorkspace(active.id, trimmed);
+      if (isDesktopStorage()) void renameDesktopWorkspace(active.id, trimmed);
+      else renameWorkspace(active.id, trimmed);
     }
     setEditing(false);
   }, [active, editValue, renameWorkspace]);
@@ -72,7 +76,8 @@ export function WorkspaceSelector() {
   const handleSwitch = useCallback(
     (id: string) => {
       if (id !== activeWorkspaceId) {
-        switchWorkspace(id);
+        if (isDesktopStorage()) void switchDesktopWorkspace(id);
+        else switchWorkspace(id);
       }
       setDropdownOpen(false);
     },
@@ -80,14 +85,17 @@ export function WorkspaceSelector() {
   );
 
   const handleNew = useCallback(() => {
-    createWorkspace();
+    if (isDesktopStorage()) void createDesktopWorkspace();
+    else createWorkspace();
     setDropdownOpen(false);
   }, [createWorkspace]);
 
   const handleDelete = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      deleteWorkspace(id);
+      if (isDesktopStorage()) {
+        if (window.confirm('删除工作区会永久删除工作区文件和此设备上的本地历史，无法撤销。确定删除吗？')) void deleteDesktopWorkspace(id);
+      } else deleteWorkspace(id);
     },
     [deleteWorkspace]
   );
@@ -97,7 +105,8 @@ export function WorkspaceSelector() {
       e.stopPropagation();
       // Switch to the workspace first if it's not active, then start editing
       if (id !== activeWorkspaceId) {
-        switchWorkspace(id);
+        if (isDesktopStorage()) void switchDesktopWorkspace(id);
+        else switchWorkspace(id);
       }
       setDropdownOpen(false);
       // Small delay so the dropdown closes and the name is visible before editing
@@ -160,7 +169,7 @@ export function WorkspaceSelector() {
               onClick={() => setDropdownOpen((o) => !o)}
               className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              <span className="max-w-48 truncate">{active?.name ?? t('workspace.defaultName')}</span>
+              <span className="max-w-48 truncate" title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
               <ChevronDown size={14} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
             <button
@@ -221,6 +230,7 @@ export function WorkspaceSelector() {
 
       {/* Right: export + import + github */}
       <div className="flex items-center gap-1">
+        {isDesktopStorage() && <StorageControls />}
         <button
           onClick={handleExportMarkdown}
           className="p-1.5 text-text-muted hover:text-text-primary transition-colors"

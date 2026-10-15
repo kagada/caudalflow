@@ -7,6 +7,7 @@ import { CustomCopilotChat } from './components/copilot/CustomCopilotChat';
 import { usePersistence } from './hooks/usePersistence';
 import { useSettingsStore } from './stores/settingsStore';
 import { PromptSettingsPanel } from './components/ui/PromptSettingsPanel';
+import { StorageGate } from './components/ui/StorageGate';
 
 function AppInner() {
   const { t } = useTranslation();
@@ -31,6 +32,7 @@ function AppInner() {
   return (
     <StrictMode>
       <Canvas />
+      <StorageGate />
       {showPromptSettings && <PromptSettingsPanel />}
       
       {/* Chat Toggle Button */}

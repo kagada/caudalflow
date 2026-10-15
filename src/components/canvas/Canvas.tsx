@@ -27,6 +27,7 @@ import { streamChat } from '../../services/llm';
 import type { ChatNode } from '../../types/flow';
 import { useCanvasBoxSelection } from '../../hooks/useCanvasBoxSelection';
 import { useCanvasNodeSelection } from '../../hooks/useCanvasNodeSelection';
+import { deferConversationCommand } from '../../services/storage/runtime';
 
 const nodeTypes: NodeTypes = {
   chat: ChatNodeComponent,
@@ -221,6 +222,7 @@ export function Canvas() {
         collapsed: false,
       });
 
+      deferConversationCommand(newNodeId);
       // Create edge from each parent to the merge node
       for (const parentId of parentIds) {
         flowStore.addEdge(parentId, newNodeId, action);

@@ -1,0 +1,150 @@
+import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { WorkspaceData } from '../../../src/types/workspace';
+
+const require = createRequire(import.meta.url);
+const { WorkspaceDatabase } = require('../database.cjs');
+
+function example(): WorkspaceData {
+  return { nodes: [{ id: 'c1', type: 'chat', position: { x: 10, y: 20 }, data: { topic: '会话', label: '学习', done: true }, style: { width: 400, height: 500 } }], edges: [], conversations: { c1: { nodeId: 'c1', messages: [{ id: 'q1', role: 'user', content: '问题', timestamp: 100 }, { id: 'a1', role: 'assistant', content: '原回答', reasoning: '思考', timestamp: 200 }], isStreaming: false } } };
+}
+
+describe('SQLite workspace and independent local history', () => {
+  let root: string;
+  let workspace: InstanceType<typeof WorkspaceDatabase>;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'caudalflow-db-'));
+    workspace = new WorkspaceDatabase(join(root, 'workspace.caudalflow'), join(root, 'personal'), { create: true, metadata: { id: 'w1', name: '测试', createdAt: 1, updatedAt: 1 } });
+  });
+  afterEach(() => { workspace?.close(); rmSync(root, { recursive: true, force: true }); });
+
+  it('stores documents, immutable versions, selected versions and relational layouts', () => {
+    workspace.save(example());
+    const first = workspace.load();
+    const firstVersion = first.data.conversations.c1.messages[1].versionId;
+    const next = example(); next.conversations.c1.messages[1].content = '新回答';
+    workspace.save(next);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM documents').get().n).toBe(2);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM document_versions WHERE document_id=?').get('a1').n).toBe(2);
+    expect(workspace.db.prepare('SELECT content FROM document_versions WHERE id=?').get(firstVersion).content).toBe('原回答');
+    workspace.save(first.data);
+    expect(workspace.load().data.conversations.c1.messages[1].versionId).toBe(firstVersion);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM document_versions WHERE document_id=?').get('a1').n).toBe(2);
+    expect(workspace.load().data.nodes[0].data).toMatchObject({ topic: '会话', label: '学习', done: true });
+  });
+
+  it('stores image bytes once and keeps attachments bound to versions', () => {
+    const data = example();
+    data.conversations.c1.messages[0].images = [{ mimeType: 'image/png', base64: Buffer.from('picture').toString('base64') }];
+    workspace.save(data);
+    const next = structuredClone(data); next.conversations.c1.messages[0].content = '修改问题';
+    workspace.save(next);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM assets').get().n).toBe(1);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM version_assets').get().n).toBe(2);
+    expect(workspace.load().data.conversations.c1.messages[0].images).toEqual(data.conversations.c1.messages[0].images);
+  });
+
+  it('rolls back the complete content change if a version insert fails', () => {
+    workspace.save(example());
+    const revision = workspace.revision;
+    const historyCount = workspace.listHistory().length;
+    workspace.db.exec("CREATE TRIGGER reject_version BEFORE INSERT ON document_versions BEGIN SELECT RAISE(ABORT, 'simulated disk failure'); END");
+    const next = example(); next.nodes[0].data.topic = '不能部分保存'; next.conversations.c1.messages[1].content = '触发失败';
+    expect(() => workspace.save(next)).toThrow('simulated disk failure');
+    expect(workspace.load().data.nodes[0].data.topic).toBe('会话');
+    expect(workspace.revision).toBe(revision);
+    expect(workspace.listHistory()).toHaveLength(historyCount);
+  });
+
+  it('rolls back workspace content when the independent history write fails', () => {
+    workspace.save(example());
+    workspace.db.exec("CREATE TRIGGER personal.reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(ABORT, 'history unavailable'); END");
+    const next = example(); next.conversations.c1.messages[1].content = '不应成功';
+    expect(() => workspace.save(next)).toThrow('history unavailable');
+    expect(workspace.load().data.conversations.c1.messages[1].content).toBe('原回答');
+  });
+
+  it('does not put local history in a copied SQLite workspace', () => {
+    workspace.save(example());
+    expect(existsSync(workspace.historyFile)).toBe(true);
+    const destination = join(root, 'shared.caudalflow'); workspace.exportTo(destination);
+    const copy = new DatabaseSync(destination);
+    try {
+      const tables = copy.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
+      expect(tables).toContain('documents'); expect(tables).not.toContain('history');
+      expect(copy.prepare('SELECT COUNT(*) AS n FROM conversation_documents').get()?.n).toBe(2);
+    } finally { copy.close(); }
+  });
+
+  it('keeps draft checkpoints out of immutable revisions and recovers interrupted output', () => {
+    workspace.save(example());
+    const next = example(); next.conversations.c1.isStreaming = true; next.conversations.c1.streamingMessageId = 'a1';
+    for (let index = 0; index < 5; index++) { next.conversations.c1.messages[1].content = `部分回答${index}`; workspace.save(next, { history: false }); }
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM document_versions WHERE document_id=?').get('a1').n).toBe(1);
+    expect(workspace.load().data.conversations.c1).toMatchObject({ isStreaming: false });
+    expect(workspace.load().data.conversations.c1.messages[1]).toMatchObject({ content: '部分回答4', generationStatus: 'interrupted' });
+    next.conversations.c1.isStreaming = false;
+    workspace.save(next, { historyBefore: example(), historyAfter: next });
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM generation_drafts').get().n).toBe(0);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM document_versions WHERE document_id=?').get('a1').n).toBe(2);
+  });
+
+  it('restores deleted content from before-history and retains current card positions', () => {
+    workspace.save(example());
+    const changed = example(); changed.conversations.c1.messages[1].content = '修改'; workspace.save(changed);
+    const historyEntry = workspace.listHistory()[0];
+    changed.nodes[0].position = { x: 800, y: 900 }; workspace.save(changed);
+    workspace.restoreHistory(historyEntry.id, 'before');
+    expect(workspace.load().data.conversations.c1.messages[1].content).toBe('原回答');
+    expect(workspace.load().data.nodes[0].position).toEqual({ x: 800, y: 900 });
+    workspace.save({ nodes: [], edges: [], conversations: {} });
+    workspace.restoreHistory(workspace.listHistory()[0].id, 'before');
+    expect(workspace.load().data.nodes).toHaveLength(1);
+  });
+
+  it('does not create history for layout changes and rejects stale revisions', () => {
+    workspace.save(example()); const count = workspace.listHistory().length;
+    const next = example(); next.nodes[0].position.x = 500; next.nodes[0].data.minimized = true;
+    workspace.save(next);
+    expect(workspace.listHistory()).toHaveLength(count);
+    expect(() => workspace.save(example(), { expectedRevision: 0 })).toThrow('已被其他操作更新');
+  });
+
+  it('restores one conversation without reverting other conversations', () => {
+    const old = example();
+    old.nodes.push({ id: 'c2', type: 'chat', position: { x: 600, y: 20 }, data: { topic: '另一个会话' } });
+    old.conversations.c2 = { nodeId: 'c2', messages: [{ id: 'q2', role: 'user', content: '原问题', timestamp: 300 }], isStreaming: false };
+    workspace.save(old); const entry = workspace.listHistory()[0];
+    const next = structuredClone(old); next.conversations.c1.messages[1].content = '修改一'; next.conversations.c2.messages[0].content = '修改二'; workspace.save(next);
+    workspace.restoreHistory(entry.id, 'after', 'c1');
+    const result = workspace.load().data;
+    expect(result.conversations.c1.messages[1].content).toBe('原回答');
+    expect(result.conversations.c2.messages[0].content).toBe('修改二');
+  });
+
+  it('bounds functional versions and can recreate a pruned version for undo', () => {
+    workspace.save(example(), { history: false }); const original = workspace.load().data;
+    for (let index = 0; index < 55; index++) {
+      const data = example(); data.conversations.c1.messages[1].content = `版本 ${index}`; workspace.save(data, { history: false });
+    }
+    expect(workspace.listVersions('a1')).toHaveLength(50);
+    workspace.save(original, { history: false });
+    expect(workspace.load().data.conversations.c1.messages[1].versionId).toBe(original.conversations.c1.messages[1].versionId);
+    expect(workspace.listVersions('a1')).toHaveLength(50);
+  });
+
+  it('rejects invalid input and unrelated databases without changing current content', () => {
+    workspace.save(example());
+    const invalid = example(); invalid.conversations.c1.messages.push({ ...invalid.conversations.c1.messages[0] });
+    expect(() => workspace.save(invalid)).toThrow('文档 ID');
+    const other = join(root, 'other.sqlite'); const db = new DatabaseSync(other); db.exec('CREATE TABLE unrelated (id INTEGER)'); db.close();
+    expect(() => new WorkspaceDatabase(other, join(root, 'personal'))).toThrow('不是支持');
+    const verify = new DatabaseSync(other);
+    try { expect(verify.prepare('PRAGMA application_id').get()?.application_id).toBe(0); } finally { verify.close(); }
+    expect(workspace.load().data.nodes).toHaveLength(1);
+  });
+});
