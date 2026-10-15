@@ -6,6 +6,23 @@ const VERTICAL_GAP = 40;
 const NODE_HEIGHT = 500;
 const COMPONENT_GAP = 200;
 
+export const COMPACT_NODE_SIZE = { width: 260, height: 148 };
+
+function positiveDimension(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value
+    : typeof value === 'string' && /^\d+(?:\.\d+)?px$/.test(value) ? Number.parseFloat(value) : NaN;
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+}
+
+// 紧凑节点按画布实际尺寸排列；CSS 的 auto 不能参与坐标计算。
+export function getNodeLayoutMetrics(node: ChatNode): NodeMetrics {
+  if (node.data.collapsed || node.data.minimized) return COMPACT_NODE_SIZE;
+  return {
+    width: positiveDimension(node.style?.width) ?? positiveDimension(node.measured?.width) ?? NODE_WIDTH,
+    height: positiveDimension(node.style?.height) ?? positiveDimension(node.measured?.height) ?? NODE_HEIGHT,
+  };
+}
+
 export function calculateMergePosition(
   parentNodes: ChatNode[]
 ): { x: number; y: number } {
@@ -16,8 +33,7 @@ export function calculateMergePosition(
   let maxY = -Infinity;
 
   for (const node of parentNodes) {
-    const width = (node.style?.width as number) ?? NODE_WIDTH;
-    const height = (node.style?.height as number) ?? NODE_HEIGHT;
+    const { width, height } = getNodeLayoutMetrics(node);
     const right = node.position.x + width;
     if (right > maxRight) maxRight = right;
     if (node.position.y < minY) minY = node.position.y;
@@ -36,8 +52,7 @@ export function calculateBranchPosition(
 ): { x: number; y: number } {
   const parentX = parentNode.position.x;
   const parentY = parentNode.position.y;
-  const parentWidth =
-    (parentNode.style?.width as number) ?? NODE_WIDTH;
+  const parentWidth = getNodeLayoutMetrics(parentNode).width;
 
   const x = parentX + parentWidth + HORIZONTAL_GAP;
   const y =
@@ -85,10 +100,7 @@ export function calculateAutoLayoutPositions(
 
   for (const node of nodes) {
     nodeMap.set(node.id, node);
-    metrics.set(node.id, {
-      width: (node.style?.width as number) ?? NODE_WIDTH,
-      height: (node.style?.height as number) ?? NODE_HEIGHT,
-    });
+    metrics.set(node.id, getNodeLayoutMetrics(node));
   }
 
   const childMap = new Map<string, string[]>();

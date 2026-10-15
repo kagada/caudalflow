@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSettingsStore } from '../settingsStore';
+
+// 持久化测试使用浏览器存储；jsdom 未提供的系统主题接口只需最小替身。
+vi.hoisted(() => {
+  window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() });
+});
 
 const INITIAL_CONFIG = {
   providerId: 'mock',
@@ -22,7 +28,34 @@ beforeEach(() => {
 });
 
 describe('settingsStore', () => {
+  it('persists, edits and deletes prompt presets without duplicating them', () => {
+    useSettingsStore.setState({ promptPresets: [] });
+    const store = useSettingsStore.getState();
+    store.savePromptPreset({ id: 'prompt', name: '解释', content: '请举例说明' });
+    store.savePromptPreset({ id: 'prompt', name: '总结', content: '请总结' });
+    expect(useSettingsStore.getState().promptPresets).toEqual([{ id: 'prompt', name: '总结', content: '请总结' }]);
+    expect(JSON.parse(localStorage.getItem('caudalflow-settings')!).state.promptPresets).toEqual(useSettingsStore.getState().promptPresets);
+    store.deletePromptPreset('prompt');
+    expect(useSettingsStore.getState().promptPresets).toEqual([]);
+  });
   describe('updateLLMConfig', () => {
+    it('selects the DeepSeek preset with its URL and model', () => {
+      useSettingsStore.getState().updateLLMConfig({ providerId: 'deepseek' });
+      expect(useSettingsStore.getState().llmConfig).toMatchObject({ providerId: 'deepseek', endpoint: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: '' });
+    });
+    it('clears the old endpoint and key when choosing a custom API', () => {
+      useSettingsStore.getState().updateLLMConfig({ providerId: 'openai', apiKey: 'old-key' });
+      useSettingsStore.getState().updateLLMConfig({ providerId: 'custom' });
+      expect(useSettingsStore.getState().llmConfig).toMatchObject({ endpoint: '', apiKey: '', model: '' });
+    });
+
+    it('keeps explicit API settings when selecting a provider and persists them', () => {
+      useSettingsStore.getState().updateLLMConfig({ providerId: 'custom', endpoint: 'http://localhost:1234/v1', model: 'local-model', apiKey: 'test-key' });
+      const config = useSettingsStore.getState().llmConfig;
+      expect(config).toMatchObject({ endpoint: 'http://localhost:1234/v1', model: 'local-model', apiKey: 'test-key' });
+      expect(JSON.parse(localStorage.getItem('caudalflow-settings')!).state.llmConfig).toEqual(config);
+    });
+
     it('merges partial config updates', () => {
       useSettingsStore.getState().updateLLMConfig({ temperature: 0.9 });
       const config = useSettingsStore.getState().llmConfig;

@@ -1,116 +1,58 @@
+import { resolveOpenAIEndpoint } from './endpoints';
+import { thinkingParameters } from './thinking';
+import type { LLMConfig } from '../../types/chat';
+import { apiFetch } from './transport';
+
 export interface ModelInfo {
   id: string;
   name: string;
 }
 
-export async function fetchModels(endpoint: string, apiKey: string): Promise<ModelInfo[]> {
-  try {
-    // Build models endpoint from chat completions endpoint
-    let modelsUrl: string;
-    if (endpoint.includes('/chat/completions')) {
-      modelsUrl = endpoint.replace(/\/chat\/completions$/, '/models');
-    } else if (endpoint.endsWith('/v1') || endpoint.endsWith('/v1/')) {
-      modelsUrl = endpoint.replace(/\/?$/, '/models');
-    } else {
-      // Assume user provided base URL, try /v1/models
-      modelsUrl = endpoint.replace(/\/?$/, '') + '/v1/models';
-    }
-    
-    const response = await fetch(modelsUrl, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch models: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle different response formats
-    if (Array.isArray(data)) {
-      return data.map((m: { id?: string; name?: string }) => ({
-        id: m.id || m.name || '',
-        name: m.name || m.id || '',
-      }));
-    }
-    if (data.data && Array.isArray(data.data)) {
-      return data.data.map((m: { id?: string; name?: string }) => ({
-        id: m.id || m.name || '',
-        name: m.name || m.id || '',
-      }));
-    }
-    
-    return [];
-  } catch (error) {
-    console.error('Failed to fetch models:', error);
-    return [];
-  }
+function authHeaders(apiKey: string): Record<string, string> {
+  return apiKey.trim() ? { Authorization: `Bearer ${apiKey.trim()}` } : {};
 }
 
-export async function testConnection(endpoint: string, apiKey: string, model?: string): Promise<{ success: boolean; message: string }> {
+// 将服务商错误带回设置面板，模型列表失败不再伪装成空列表。
+async function responseError(response: Response): Promise<Error> {
+  const data = await response.json().catch(() => null);
+  const detail = data?.error?.message;
+  return new Error(typeof detail === 'string' ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status}`);
+}
+
+export async function fetchModels(endpoint: string, apiKey: string): Promise<ModelInfo[]> {
+  const response = await apiFetch(resolveOpenAIEndpoint(endpoint, 'models'), {
+    headers: authHeaders(apiKey),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw await responseError(response);
+  const data = await response.json();
+  const entries: unknown = Array.isArray(data) ? data : data.data;
+  if (!Array.isArray(entries)) throw new Error('The API did not return a model list.');
+  return entries.flatMap((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const model = entry as { id?: unknown; name?: unknown };
+    const id = typeof model.id === 'string' ? model.id : typeof model.name === 'string' ? model.name : '';
+    return id ? [{ id, name: typeof model.name === 'string' ? model.name : id }] : [];
+  });
+}
+
+// 测试真实聊天请求，只有返回有效回复才算成功；限流不能代表配置可用。
+export async function testConnection(endpoint: string, apiKey: string, model?: string, thinkingMode?: LLMConfig['thinkingMode']): Promise<{ success: boolean; message: string }> {
   try {
-    // Build chat completions endpoint
-    let chatUrl: string;
-    if (endpoint.includes('/chat/completions')) {
-      chatUrl = endpoint;
-    } else if (endpoint.endsWith('/v1') || endpoint.endsWith('/v1/')) {
-      chatUrl = endpoint.replace(/\/?$/, '') + '/chat/completions';
-    } else {
-      chatUrl = endpoint.replace(/\/?$/, '') + '/v1/chat/completions';
-    }
-
-    // Use provided model or fetch first available model
-    let testModel = model;
-    if (!testModel) {
-      const models = await fetchModels(endpoint, apiKey);
-      if (models.length > 0) {
-        testModel = models[0].id;
-      } else {
-        return { success: false, message: 'No models available. Please enter a model ID.' };
-      }
-    }
-
-    const response = await fetch(chatUrl, {
+    if (!model?.trim()) return { success: false, message: 'Please enter a model ID.' };
+    const response = await apiFetch(resolveOpenAIEndpoint(endpoint, 'chat/completions'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: testModel,
-        messages: [{ role: 'user', content: 'Hi' }],
-      }),
+      headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
+      body: JSON.stringify({ model: model.trim(), messages: [{ role: 'user', content: 'Reply with OK.' }], stream: false, ...thinkingParameters(endpoint, thinkingMode) }),
+      signal: AbortSignal.timeout(20000),
     });
-
-    // If we get a response (even 4xx), the endpoint is reachable
-    if (response.status === 401 || response.status === 403) {
-      return { success: false, message: 'Invalid API key' };
+    if (!response.ok) throw await responseError(response);
+    const data = await response.json();
+    if (typeof data.choices?.[0]?.message?.content !== 'string') {
+      return { success: false, message: 'The API did not return an OpenAI-compatible chat response.' };
     }
-    if (response.status === 404) {
-      return { success: false, message: 'Endpoint not found' };
-    }
-    if (response.status === 429) {
-      return { success: true, message: 'Endpoint reachable (rate limited)' };
-    }
-    if (response.ok) {
-      return { success: true, message: 'Connection successful' };
-    }
-    
-    // Other errors - endpoint is reachable but something is wrong
-    const errorData = await response.json().catch(() => ({}));
-    return { 
-      success: false, 
-      message: errorData.error?.message || `Error: ${response.status}` 
-    };
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        return { success: false, message: 'Cannot reach endpoint (CORS or network error)' };
-      }
-      return { success: false, message: error.message || 'Connection failed' };
-    }
-    return { success: false, message: 'Connection failed' };
+    return { success: true, message: 'Connection successful' };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : 'Connection failed' };
   }
 }

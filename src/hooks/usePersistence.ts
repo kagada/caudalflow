@@ -4,6 +4,8 @@ import { useFlowStore } from '../stores/flowStore';
 import { useChatStore } from '../stores/chatStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import type { WorkspaceData, WorkspaceFile } from '../types/workspace';
+import { hasPersistedFlowChanges } from '../utils/flowPersistence';
+import { calculateAutoLayoutPositions } from '../utils/nodeLayout';
 
 const DEBOUNCE_MS = 1000;
 
@@ -11,8 +13,8 @@ function storageKey(workspaceId: string) {
   return `caudalflow-workspace-${workspaceId}`;
 }
 
-function sanitizeNodes(nodes: WorkspaceData['nodes']) {
-  return nodes.map((n) => {
+function sanitizeNodes(nodes: WorkspaceData['nodes'], edges: WorkspaceData['edges']) {
+  const sanitized = nodes.map((n) => {
     const w = n.style?.width;
     const h = n.style?.height;
     const badWidth = w === 'auto' || (typeof w === 'number' && (isNaN(w) || w <= 0));
@@ -25,11 +27,20 @@ function sanitizeNodes(nodes: WorkspaceData['nodes']) {
           width: (n.data?._prevWidth as number) || 400,
           height: (n.data?._prevHeight as number) || 500,
         },
-        data: { ...n.data, minimized: false, maximized: false },
+        // 紧凑状态使用固定尺寸呈现，重载后仍保留最小化；只清掉临时最大化状态。
+        data: { ...n.data, maximized: false },
       };
     }
     return n;
   });
+  // 旧版排列产生的 NaN 会被 JSON 保存为 null；重建布局，让节点和连线重新可操作。
+  if (sanitized.every((node) => Number.isFinite(node.position?.x) && Number.isFinite(node.position?.y))) return sanitized;
+  const recovered = sanitized.map((node) => ({ ...node, position: {
+    x: Number.isFinite(node.position?.x) ? node.position.x : 0,
+    y: Number.isFinite(node.position?.y) ? node.position.y : 0,
+  } }));
+  const positions = calculateAutoLayoutPositions(recovered, edges);
+  return recovered.map((node) => ({ ...node, position: positions[node.id] }));
 }
 
 function saveToStorage(workspaceId: string) {
@@ -53,7 +64,7 @@ function loadFromStorage(workspaceId: string) {
     if (raw) {
       const data: WorkspaceData = JSON.parse(raw);
       if (data.nodes?.length) {
-        useFlowStore.getState().setNodes(sanitizeNodes(data.nodes));
+        useFlowStore.getState().setNodes(sanitizeNodes(data.nodes, data.edges ?? []));
         useFlowStore.getState().setEdges(data.edges ?? []);
       } else {
         useFlowStore.getState().setNodes([]);
@@ -161,7 +172,7 @@ export function importWorkspace(file: File) {
 
       // Save the imported data to the new workspace's storage
       const importedData: WorkspaceData = {
-        nodes: data.nodes?.length ? sanitizeNodes(data.nodes) : [],
+        nodes: data.nodes?.length ? sanitizeNodes(data.nodes, data.edges ?? []) : [],
         edges: data.edges ?? [],
         conversations: data.conversations ?? {},
       };
@@ -215,9 +226,19 @@ export function usePersistence() {
   }, []);
 
   useEffect(() => {
-    const unsubFlow = useFlowStore.subscribe(debouncedSave);
+    const unsubFlow = useFlowStore.subscribe((next, previous) => {
+      if (hasPersistedFlowChanges(next, previous)) debouncedSave();
+    });
     const unsubChat = useChatStore.subscribe(debouncedSave);
+    // 桌面窗口关闭或页面刷新时立即落盘，避免丢掉最后一秒的聊天和节点修改。
+    const flushSave = () => {
+      clearTimeout(timeoutRef.current);
+      const wsId = useWorkspaceStore.getState().activeWorkspaceId;
+      if (wsId) saveToStorage(wsId);
+    };
+    window.addEventListener('beforeunload', flushSave);
     return () => {
+      window.removeEventListener('beforeunload', flushSave);
       unsubFlow();
       unsubChat();
       clearTimeout(timeoutRef.current);

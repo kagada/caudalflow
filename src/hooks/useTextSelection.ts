@@ -16,10 +16,6 @@ export function useTextSelection(containerRef: React.RefObject<HTMLDivElement | 
     }
 
     const text = sel.toString().trim();
-    if (text.length < 2 || text.length > 200) {
-      return;
-    }
-
     const container = containerRef.current;
     if (!container) return;
 

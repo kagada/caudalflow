@@ -1,5 +1,9 @@
 import type { LLMProvider, StreamCallbacks } from './types';
 import type { ChatMessage, LLMConfig } from '../../types/chat';
+import { resolveOpenAIEndpoint } from './endpoints';
+import { readOpenAIStream } from './openaiStream';
+import { thinkingParameters } from './thinking';
+import { apiFetch } from './transport';
 
 function toOpenAIMessages(messages: ChatMessage[]) {
   return messages.map((m, index) => {
@@ -48,20 +52,22 @@ export const OpenAIProvider: LLMProvider = {
     signal: AbortSignal
   ) {
     const body = {
-      model: config.model,
+      model: config.model.trim(),
       messages: toOpenAIMessages(messages),
       temperature: config.temperature,
       max_completion_tokens: config.maxTokens,
       stream: true,
+      ...thinkingParameters(config.endpoint, config.thinkingMode),
     };
 
     try {
-      const response = await fetch('/api/llm', {
+      // 本地使用直接访问设置中的接口，不再要求额外启动后端代理。
+      if (!config.model.trim()) throw new Error('Please enter a model ID in Settings.');
+      const response = await apiFetch(resolveOpenAIEndpoint(config.endpoint, 'chat/completions'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-llm-provider': 'openai',
-          'x-api-key': config.apiKey || '',
+          ...(config.apiKey.trim() ? { Authorization: `Bearer ${config.apiKey.trim()}` } : {}),
         },
         body: JSON.stringify(body),
         signal,
@@ -72,42 +78,7 @@ export const OpenAIProvider: LLMProvider = {
         throw new Error(`API error ${response.status}: ${errorText}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (signal.aborted) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') {
-            callbacks.onDone();
-            return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              callbacks.onToken(content);
-            }
-          } catch {
-              continue;
-          }
-        }
-      }
-
-      callbacks.onDone();
+      await readOpenAIStream(response, callbacks, signal);
     } catch (error) {
       if (signal.aborted) return;
       callbacks.onError(error instanceof Error ? error : new Error(String(error)));

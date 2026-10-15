@@ -72,6 +72,9 @@ export function useChatNode(nodeId: string, topic: string, parentNodeId?: string
           onToken: (token) => {
             useChatStore.getState().appendToLastMessage(nodeId, token);
           },
+          onReasoning: (token: string) => {
+            useChatStore.getState().appendReasoningToLastMessage(nodeId, token);
+          },
           onDone: () => {
             useChatStore.getState().setStreaming(nodeId, false);
           },

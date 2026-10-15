@@ -41,7 +41,7 @@ describe('buildCanvasAgentState', () => {
     flow.addEdge(nodeId, childId, 'follow-up');
     useFlowStore
       .getState()
-      .setNodes(useFlowStore.getState().nodes.map((node) => (node.id === nodeId ? { ...node, selected: true } : node)));
+      .setNodes(useFlowStore.getState().nodes.map((node) => ({ ...node, selected: node.id === nodeId })));
 
     const chat = useChatStore.getState();
     chat.initConversation(nodeId);

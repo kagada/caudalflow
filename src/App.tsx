@@ -6,11 +6,13 @@ import { CopilotKitProviderShell } from './components/copilot/CopilotKitProvider
 import { CustomCopilotChat } from './components/copilot/CustomCopilotChat';
 import { usePersistence } from './hooks/usePersistence';
 import { useSettingsStore } from './stores/settingsStore';
+import { PromptSettingsPanel } from './components/ui/PromptSettingsPanel';
 
 function AppInner() {
   const { t } = useTranslation();
   const [showChat, setShowChat] = useState(false);
   const theme = useSettingsStore((s) => s.theme);
+  const showPromptSettings = useSettingsStore((s) => s.showPromptSettings);
   usePersistence();
 
   // Apply theme on mount and when theme changes
@@ -29,6 +31,7 @@ function AppInner() {
   return (
     <StrictMode>
       <Canvas />
+      {showPromptSettings && <PromptSettingsPanel />}
       
       {/* Chat Toggle Button */}
       <button

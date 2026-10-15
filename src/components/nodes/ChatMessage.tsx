@@ -5,10 +5,12 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Check, Copy } from 'lucide-react';
 import type { ChatMessage as ChatMessageType } from '../../types/chat';
+import { useTranslation } from 'react-i18next';
 
 interface ChatMessageProps {
   message: ChatMessageType;
   exploredTexts: string[];
+  isStreaming?: boolean;
 }
 
 function highlightExplored(children: ReactNode, texts: string[]): ReactNode {
@@ -61,7 +63,9 @@ function splitAndHighlight(text: string, texts: string[]): ReactNode {
 export const ChatMessage = memo(function ChatMessage({
   message,
   exploredTexts,
+  isStreaming = false,
 }: ChatMessageProps) {
+  const { t } = useTranslation();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const [copied, setCopied] = useState(false);
@@ -117,15 +121,16 @@ export const ChatMessage = memo(function ChatMessage({
 
   return (
     <div
-      className={`px-3 py-2 ${
+      data-message-id={message.id}
+      className={`px-6 py-4 ${
         isUser ? 'flex justify-end' : ''
       }`}
     >
       <div
-        className={`relative group text-sm leading-relaxed ${
+        className={`relative group text-[16px] leading-7 ${
           isUser
-            ? 'bg-accent-600 text-white rounded-2xl rounded-br-md px-3 py-2 pr-7 max-w-[85%] inline-block'
-            : 'text-text-primary prose-invert prose-sm max-w-none pr-7'
+            ? 'bg-accent-600 text-white rounded-2xl rounded-br-md px-5 py-3 pr-9 max-w-[90%] inline-block'
+            : 'text-text-primary prose-invert max-w-none pr-8'
         }`}
       >
         <button
@@ -154,6 +159,13 @@ export const ChatMessage = memo(function ChatMessage({
               {message.content && <div>{message.content}</div>}
             </div>
           ) : (
+          <>
+          {message.reasoning && (
+            <details className="mb-3 rounded-lg border border-border bg-surface-800 px-3 py-2 text-text-secondary">
+              <summary className="cursor-pointer text-xs">{t(isStreaming && !message.content ? 'chat.thinking' : 'chat.thinkingContent')}</summary>
+              <div className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed">{message.reasoning}</div>
+            </details>
+          )}
           <Markdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -169,7 +181,7 @@ export const ChatMessage = memo(function ChatMessage({
                       customStyle={{
                         margin: '0.5rem 0',
                         borderRadius: '0.375rem',
-                        fontSize: '0.75rem',
+                        fontSize: '0.875rem',
                       }}
                     >
                       {code}
@@ -178,7 +190,7 @@ export const ChatMessage = memo(function ChatMessage({
                 }
                 return (
                   <code
-                    className="bg-surface-700 px-1 py-0.5 rounded text-xs"
+                    className="bg-surface-700 px-1 py-0.5 rounded text-[14px]"
                     {...props}
                   >
                     {children}
@@ -186,18 +198,20 @@ export const ChatMessage = memo(function ChatMessage({
                 );
               },
               p({ children }) {
-                return <p className="mb-2 last:mb-0">{withHighlights(children)}</p>;
+                return <p className="mb-4 last:mb-0">{withHighlights(children)}</p>;
               },
+              h1({ children }) { return <h1 className="text-[25px] leading-9 font-bold mt-6 mb-4">{withHighlights(children)}</h1>; },
+              h4({ children }) { return <h4 className="text-[17px] leading-7 font-semibold mt-4 mb-2">{withHighlights(children)}</h4>; },
               h2({ children }) {
                 return (
-                  <h2 className="text-sm font-semibold text-text-primary mt-3 mb-1">
+                  <h2 className="text-[21px] leading-8 font-semibold text-text-primary mt-6 mb-3">
                     {withHighlights(children)}
                   </h2>
                 );
               },
               h3({ children }) {
                 return (
-                  <h3 className="text-sm font-medium text-text-primary mt-2 mb-1">
+                  <h3 className="text-[18px] leading-7 font-semibold text-text-primary mt-5 mb-2">
                     {withHighlights(children)}
                   </h3>
                 );
@@ -211,7 +225,7 @@ export const ChatMessage = memo(function ChatMessage({
                 );
               },
               li({ children }) {
-                return <li className="text-sm">{withHighlights(children)}</li>;
+                return <li className="text-[16px] leading-7">{withHighlights(children)}</li>;
               },
               blockquote({ children }) {
                 return (
@@ -223,7 +237,7 @@ export const ChatMessage = memo(function ChatMessage({
               table({ children }) {
                 return (
                   <div className="overflow-x-auto my-2">
-                    <table className="min-w-full text-xs border-collapse">
+                    <table className="min-w-full text-[14px] border-collapse">
                       {children}
                     </table>
                   </div>
@@ -231,14 +245,14 @@ export const ChatMessage = memo(function ChatMessage({
               },
               th({ children }) {
                 return (
-                  <th className="border border-border-hover px-2 py-1 bg-surface-800 text-left font-medium">
+                  <th className="border border-border-hover px-3 py-2 bg-surface-800 text-left font-medium">
                     {withHighlights(children)}
                   </th>
                 );
               },
               td({ children }) {
                 return (
-                  <td className="border border-border px-2 py-1">
+                  <td className="border border-border px-3 py-2">
                     {withHighlights(children)}
                   </td>
                 );
@@ -260,8 +274,10 @@ export const ChatMessage = memo(function ChatMessage({
               },
             }}
           >
-            {message.content || '▊'}
+            {message.content || t(isStreaming ? message.reasoning ? 'chat.waitingForAnswer' : 'chat.waitingForResponse' : 'chat.noAnswer')}
           </Markdown>
+          {!!message.previousVersions?.length && <details className="mt-4 border-t border-border pt-3 text-sm text-text-secondary"><summary className="cursor-pointer">{t('menu.previousVersions')} ({message.previousVersions.length})</summary>{message.previousVersions.map((version, index) => <div key={index} className="mt-3 whitespace-pre-wrap rounded-lg bg-surface-800 p-3">{version.content}</div>)}</details>}
+          </>
         )}
       </div>
 

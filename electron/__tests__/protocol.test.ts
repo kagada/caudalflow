@@ -1,0 +1,61 @@
+import { createRequire } from 'node:module';
+import { describe, expect, it, vi } from 'vitest';
+
+const require = createRequire(import.meta.url);
+const { createProtocolHandler } = require('../protocol.cjs') as {
+  createProtocolHandler: (directory: string, fetcher: typeof fetch) => (request: Request) => Promise<Response>;
+};
+
+describe('desktop protocol', () => {
+  it('forwards API authentication and preserves the response stream without browser headers', async () => {
+    const reply = new Response('data: reply\n\n', { headers: { 'content-type': 'text/event-stream' } });
+    const remote = vi.fn().mockResolvedValue(reply);
+    const handler = createProtocolHandler('D:/app/dist', remote);
+    const request = new Request(`app://caudalflow/api/proxy?url=${encodeURIComponent('http://localhost:1234/v1/chat/completions')}`, { method: 'POST', headers: { Authorization: 'Bearer test', 'Content-Type': 'application/json', Cookie: 'do-not-forward', Origin: 'app://caudalflow' }, body: '{"stream":true}' });
+    expect(await handler(request)).toBe(reply);
+    const [url, options] = remote.mock.calls[0];
+    expect(url).toBe('http://localhost:1234/v1/chat/completions');
+    expect(options.headers.get('authorization')).toBe('Bearer test');
+    expect(options.headers.has('cookie')).toBe(false);
+    expect(options.headers.has('origin')).toBe(false);
+    expect(new TextDecoder().decode(options.body)).toBe('{"stream":true}');
+    expect(options.redirect).toBe('error');
+  });
+
+  it('rejects attempts to proxy local files', async () => {
+    const remote = vi.fn();
+    const handler = createProtocolHandler('D:/app/dist', remote);
+    expect((await handler(new Request('app://caudalflow/api/proxy?url=file%3A%2F%2F%2FC%3A%2Fsecret'))).status).toBe(400);
+    expect(remote).not.toHaveBeenCalled();
+  });
+
+  it('rejects file paths outside the bundled UI directory', async () => {
+    const remote = vi.fn();
+    const handler = createProtocolHandler('D:/app/dist', remote);
+    expect((await handler(new Request('app://caudalflow/%2e%2e%5csecret.txt'))).status).toBe(403);
+    expect(remote).not.toHaveBeenCalled();
+  });
+
+  it('rejects requests initiated by an unrelated webpage', async () => {
+    const remote = vi.fn();
+    const handler = createProtocolHandler('D:/app/dist', remote);
+    const request = Object.assign(new Request('app://caudalflow/'), { initiatorOrigin: 'https://example.com' });
+    expect((await handler(request)).status).toBe(403);
+    expect(remote).not.toHaveBeenCalled();
+  });
+
+  it('serves the bundled index with a content security policy', async () => {
+    const remote = vi.fn().mockResolvedValue(new Response('<html></html>', { headers: { 'content-type': 'text/html' } }));
+    const handler = createProtocolHandler('D:/app/dist', remote);
+    const reply = await handler(new Request('app://caudalflow/'));
+    expect(reply.headers.get('content-security-policy')).toContain("script-src 'self'");
+    expect(await reply.text()).toBe('<html></html>');
+  });
+
+  it('reports unavailable Agent functionality without serving HTML as an API response', async () => {
+    const remote = vi.fn();
+    const handler = createProtocolHandler('D:/app/dist', remote);
+    expect((await handler(new Request('app://caudalflow/api/agent', { method: 'POST' }))).status).toBe(503);
+    expect(remote).not.toHaveBeenCalled();
+  });
+});

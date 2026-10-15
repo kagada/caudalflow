@@ -21,10 +21,12 @@ import { SettingsPanel } from '../ui/SettingsPanel';
 import { WorkspaceSelector } from '../ui/WorkspaceSelector';
 import { MergeSelectionPopup } from './MergeSelectionPopup';
 import { WelcomePopup } from '../ui/WelcomePopup';
-import { calculateMergePosition } from '../../utils/nodeLayout';
+import { calculateMergePosition, COMPACT_NODE_SIZE } from '../../utils/nodeLayout';
 import { getMergeSystemPrompt } from '../../utils/systemPrompts';
 import { streamChat } from '../../services/llm';
 import type { ChatNode } from '../../types/flow';
+import { useCanvasBoxSelection } from '../../hooks/useCanvasBoxSelection';
+import { useCanvasNodeSelection } from '../../hooks/useCanvasNodeSelection';
 
 const nodeTypes: NodeTypes = {
   chat: ChatNodeComponent,
@@ -42,16 +44,29 @@ function SelectionHandler({ onSelectionChange }: { onSelectionChange: (params: O
 export function Canvas() {
   const { t } = useTranslation();
   const nodes = useFlowStore((s) => s.nodes);
+  // 外层节点也必须缩小；只改内部卡片会留下旧尺寸和悬空锚点。
+  const displayNodes = useMemo(() => nodes.map((node) => node.data.collapsed || node.data.minimized
+    ? { ...node, ...COMPACT_NODE_SIZE, style: { ...node.style, ...COMPACT_NODE_SIZE } }
+    : node), [nodes]);
   const edges = useFlowStore((s) => s.edges);
   const onNodesChange = useFlowStore((s) => s.onNodesChange);
   const onEdgesChange = useFlowStore((s) => s.onEdgesChange);
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const [selectedNodes, setSelectedNodes] = useState<ChatNode[]>([]);
   const [spacePressed, setSpacePressed] = useState(false);
+  const { canvasRef, onPointerDownCapture, startSelection, endSelection } = useCanvasBoxSelection(spacePressed);
+  const { onPointerDownCapture: selectNodeOnPointerDown, onClickCapture: selectNodeOnClick } = useCanvasNodeSelection();
+  const handleCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    selectNodeOnPointerDown(event);
+    onPointerDownCapture(event);
+  }, [selectNodeOnPointerDown, onPointerDownCapture]);
 
   // Listen for space key to toggle pan mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w') {
+        e.preventDefault(); e.stopPropagation(); useFlowStore.getState().closeActiveCard(); return;
+      }
       if (e.code === 'Space' && !e.repeat) {
         // Don't trigger if user is typing in an input
         if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
@@ -67,15 +82,23 @@ export function Canvas() {
       }
     };
     window.addEventListener('keydown', handleKeyDown);
+    const closeActiveCard = () => useFlowStore.getState().closeActiveCard();
+    window.addEventListener('caudalflow-close-active-card', closeActiveCard);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('caudalflow-close-active-card', closeActiveCard);
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
 
   const handleSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     setSelectedNodes(params.nodes as ChatNode[]);
+  }, []);
+
+  // 保持回调引用稳定，选区变化不能通过画布 props 让所有卡片重绘。
+  const handleActivateNode = useCallback((_event: React.MouseEvent, node: ChatNode) => {
+    useFlowStore.getState().activateNode(node.id);
   }, []);
 
   const handleDoubleClick = useCallback(
@@ -109,7 +132,7 @@ export function Canvas() {
         y = (y - ty) / scale - 250;
       }
 
-      const nodeId = flowStore.addChatNode({ x, y }, {
+      const nodeId = flowStore.addNewChatNode({ x, y }, {
         topic: t('canvas.newChat'),
         collapsed: false,
       });
@@ -278,9 +301,9 @@ export function Canvas() {
   return (
     <div className="w-full h-full flex flex-col">
       <WorkspaceSelector />
-      <div className="flex-1 relative">
+      <div className="flex-1 relative" ref={canvasRef} onPointerDownCapture={handleCanvasPointerDown} onClickCapture={selectNodeOnClick}>
         <ReactFlow
-          nodes={nodes}
+          nodes={displayNodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -299,10 +322,16 @@ export function Canvas() {
           selectionKeyCode="Shift"
           selectionMode={SelectionMode.Partial}
           selectionOnDrag={!spacePressed}
-          panOnDrag={spacePressed}
+          onSelectionStart={startSelection}
+          onSelectionEnd={endSelection}
+          // 中键随时平移画布；按住空格时也允许左键平移。
+          panOnDrag={spacePressed ? [0, 1] : [1]}
           panOnScroll={spacePressed}
           nodesDraggable={!spacePressed}
           elementsSelectable={true}
+          elevateNodesOnSelect={false}
+          onNodeClick={handleActivateNode}
+          onNodeDragStart={handleActivateNode}
         >
           <SelectionHandler onSelectionChange={handleSelectionChange} />
           <Background

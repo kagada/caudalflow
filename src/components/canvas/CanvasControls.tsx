@@ -42,7 +42,7 @@ export function CanvasControls() {
     const x = (-viewport.x + window.innerWidth / 2) / viewport.zoom - 200;
     const y = (-viewport.y + window.innerHeight / 2) / viewport.zoom - 250;
 
-    const nodeId = useFlowStore.getState().addChatNode({ x, y }, {
+    const nodeId = useFlowStore.getState().addNewChatNode({ x, y }, {
       topic: t('canvas.newChat'),
       collapsed: false,
     });
@@ -53,18 +53,19 @@ export function CanvasControls() {
     const flowStore = useFlowStore.getState();
     const flowElement = document.querySelector('.react-flow');
 
-    if (arrangeTimerRef.current !== null) {
-      window.clearTimeout(arrangeTimerRef.current);
-    }
-
-    flowElement?.classList.add('auto-arranging');
-
     const positions = calculateAutoLayoutPositions(flowStore.nodes, flowStore.edges, {
       horizontalGap: 100,
       verticalGap: 40,
       componentGap: 200,
       origin: { x: 0, y: 0 },
     });
+
+    // 整批坐标有效才更新，避免一次失败把坏坐标保存到工作区。
+    if (!flowStore.nodes.every((node) => Number.isFinite(positions[node.id]?.x) && Number.isFinite(positions[node.id]?.y))) return;
+    if (arrangeTimerRef.current !== null) {
+      window.clearTimeout(arrangeTimerRef.current);
+    }
+    flowElement?.classList.add('auto-arranging');
 
     flowStore.setNodes(
       flowStore.nodes.map((node) => {
@@ -78,9 +79,12 @@ export function CanvasControls() {
     );
 
     arrangeTimerRef.current = window.setTimeout(() => {
-      fitView({ padding: 0.2 });
-      flowElement?.classList.remove('auto-arranging');
-      arrangeTimerRef.current = null;
+      try {
+        void fitView({ padding: 0.2 });
+      } finally {
+        flowElement?.classList.remove('auto-arranging');
+        arrangeTimerRef.current = null;
+      }
     }, 320);
   };
 
@@ -100,7 +104,7 @@ export function CanvasControls() {
     <>
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5">
         <Tooltip content={t('canvas.newChat')}>
-          <button onClick={handleNewNode} className={btnClass}>
+          <button aria-label={t('canvas.newChat')} onClick={handleNewNode} className="p-2 rounded-lg bg-accent-600 text-white border border-accent-500 shadow-md hover:bg-accent-500 transition-colors">
             <Plus size={18} />
           </button>
         </Tooltip>

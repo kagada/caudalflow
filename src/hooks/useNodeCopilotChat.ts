@@ -5,6 +5,7 @@ import { streamChat, generateTitle } from '../services/llm';
 import { getRootSystemPrompt, getBranchSystemPrompt, getMergeSystemPrompt } from '../utils/systemPrompts';
 import type { ChatMessage } from '../types/chat';
 import { validateImage, fileToBase64 } from '../utils/image';
+import { reviseMessage } from '../services/messageActions';
 
 export function useNodeCopilotChat(
   nodeId: string,
@@ -80,6 +81,9 @@ export function useNodeCopilotChat(
           onToken: (token) => {
             useChatStore.getState().appendToLastMessage(nodeId, token);
           },
+          onReasoning: (token: string) => {
+            useChatStore.getState().appendReasoningToLastMessage(nodeId, token);
+          },
           onDone: () => {
             useChatStore.getState().setStreaming(nodeId, false);
             // Auto-generate title for default-named nodes after first exchange
@@ -113,5 +117,12 @@ export function useNodeCopilotChat(
     useChatStore.getState().setStreaming(nodeId, false);
   }, [nodeId]);
 
-  return { sendMessage, cancelStream };
+  const revise = useCallback((messageId: string, prompt?: string) => {
+    if (useChatStore.getState().conversations[nodeId]?.isStreaming) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    reviseMessage(nodeId, messageId, prompt, controller.signal);
+  }, [nodeId]);
+  return { sendMessage, cancelStream, reviseMessage: revise };
 }

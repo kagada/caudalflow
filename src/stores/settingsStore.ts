@@ -4,8 +4,14 @@ import i18n from '../i18n';
 import type { LLMConfig } from '../types/chat';
 
 type Theme = 'light' | 'dark' | 'system';
+export interface PromptPreset { id: string; name: string; content: string }
 
 interface SettingsState {
+  promptPresets: PromptPreset[];
+  showPromptSettings: boolean;
+  setShowPromptSettings: (show: boolean) => void;
+  savePromptPreset: (preset: PromptPreset) => void;
+  deletePromptPreset: (id: string) => void;
   llmConfig: LLMConfig;
   showMinimap: boolean;
   showSystemPrompts: boolean;
@@ -41,6 +47,12 @@ function applyTheme(theme: Theme) {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      promptPresets: [],
+      showPromptSettings: false,
+      setShowPromptSettings: (show) => set({ showPromptSettings: show }),
+      // 预设与 API 设置一起保存，菜单始终读取最新列表。
+      savePromptPreset: (preset) => set({ promptPresets: get().promptPresets.some((item) => item.id === preset.id) ? get().promptPresets.map((item) => item.id === preset.id ? preset : item) : [...get().promptPresets, preset] }),
+      deletePromptPreset: (id) => set({ promptPresets: get().promptPresets.filter((item) => item.id !== id) }),
       llmConfig: {
         providerId: 'mock',
         providerName: 'Mock',
@@ -63,18 +75,21 @@ export const useSettingsStore = create<SettingsState>()(
         const current = get().llmConfig;
         const merged = { ...current, ...config };
 
-        // When switching providers, set sensible defaults for endpoint and model
+        // 切换服务商时清掉旧密钥，避免把它误发到新的接口；显式传入的配置优先。
         if (config.providerId && config.providerId !== current.providerId) {
           const defaults: Record<string, { model: string; endpoint?: string }> = {
             openai: { model: 'gpt-4o-mini', endpoint: 'https://api.openai.com/v1/chat/completions' },
             anthropic: { model: 'claude-sonnet-4-5-20250929', endpoint: 'https://api.anthropic.com/v1/messages' },
             custom: { model: '', endpoint: '' },
+            deepseek: { model: 'deepseek-flash', endpoint: 'https://api.deepseek.com' },
           };
           const d = defaults[config.providerId];
           if (d) {
-            merged.model = d.model;
-            if (d.endpoint) merged.endpoint = d.endpoint;
+            merged.model = config.model ?? d.model;
+            merged.endpoint = config.endpoint ?? d.endpoint ?? '';
           }
+          merged.apiKey = config.apiKey ?? '';
+          merged.providerName = config.providerName ?? config.providerId;
         }
 
         set({ llmConfig: merged });
@@ -107,6 +122,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'caudalflow-settings',
       partialize: (state) => ({
+        promptPresets: state.promptPresets,
         llmConfig: state.llmConfig,
         showMinimap: state.showMinimap,
         showSystemPrompts: state.showSystemPrompts,

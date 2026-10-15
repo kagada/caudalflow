@@ -19,7 +19,8 @@ interface ChatState {
     mimeType: string;
   }[], triggeredBy?: string) => string;
   appendToLastMessage: (nodeId: string, chunk: string) => void;
-  setStreaming: (nodeId: string, streaming: boolean) => void;
+  appendReasoningToLastMessage: (nodeId: string, chunk: string) => void;
+  setStreaming: (nodeId: string, streaming: boolean, messageId?: string) => void;
   getMessages: (nodeId: string) => ChatMessage[];
   removeConversation: (nodeId: string) => void;
   setConversations: (conversations: Record<string, Conversation>) => void;
@@ -70,13 +71,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  setStreaming: (nodeId, streaming) => {
+  // 思考单独保存在消息中，避免混入正文和下一轮对话上下文。
+  appendReasoningToLastMessage: (nodeId, chunk) => {
+    const conv = get().conversations[nodeId];
+    if (!conv || !conv.messages.length) return;
+    const messages = [...conv.messages];
+    const last = messages[messages.length - 1];
+    messages[messages.length - 1] = { ...last, reasoning: (last.reasoning ?? '') + chunk };
+    set({ conversations: { ...get().conversations, [nodeId]: { ...conv, messages } } });
+  },
+
+  setStreaming: (nodeId, streaming, messageId) => {
     const conv = get().conversations[nodeId];
     if (!conv) return;
     set({
       conversations: {
         ...get().conversations,
-        [nodeId]: { ...conv, isStreaming: streaming },
+        [nodeId]: { ...conv, isStreaming: streaming, streamingMessageId: streaming ? messageId ?? conv.messages.at(-1)?.id : undefined },
       },
     });
   },

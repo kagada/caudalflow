@@ -1,8 +1,10 @@
 {
   "name": "caudalflow",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "description": "Visual canvas for AI conversations — branch, explore in parallel, merge insights",
   "type": "module",
+  "main": "electron/main.cjs",
+  "author": "CaudalFlow contributors",
   "bin": {
     "caudalflow": "./bin/cli.js"
   },
@@ -21,11 +23,53 @@
     "install:agent": "cd apps/agent && python3 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -e .",
     "install:agent:win": "cd apps/agent && python -m venv .venv && .venv\\Scripts\\pip.exe install -U pip && .venv\\Scripts\\pip.exe install -e .",
     "build": "tsc -b && vite build",
+    "build:diagnostic": "tsc -b && vite build --sourcemap",
+    "desktop:dist:diagnostic": "npm run build:diagnostic && electron-builder --win portable --x64 -c.directories.output=release/diagnostic -c.portable.artifactName=CaudalFlow-${version}-${arch}-diagnostic.${ext}",
+    "desktop": "npm run build && electron .",
+    "desktop:check": "npm run build && electron . --smoke-test",
+    "desktop:pack": "npm run build && electron-builder --win --x64 --dir",
+    "desktop:dist": "npm run build && electron-builder --win --x64",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build"
+  },
+  "build": {
+    "appId": "com.caudalflow.learning.desktop",
+    "productName": "CaudalFlow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*.cjs",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "artifactName": "CaudalFlow-${version}-${arch}-setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "portable": {
+      "artifactName": "CaudalFlow-${version}-${arch}-portable.${ext}"
+    }
   },
   "keywords": [
     "ai",
@@ -78,6 +122,8 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.0.0",
     "concurrently": "^9.2.1",
+    "electron": "^44.7.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",

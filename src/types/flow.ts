@@ -9,6 +9,8 @@ export interface ChatNodeData {
   collapsed?: boolean;
   minimized?: boolean;
   maximized?: boolean;
+  // 搞定状态独立于卡片展开/折叠，随工作区一同保存。
+  done?: boolean;
   [key: string]: unknown;
   color?: string
   label?: string

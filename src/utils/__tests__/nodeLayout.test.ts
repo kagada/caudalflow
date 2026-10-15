@@ -3,6 +3,7 @@ import {
   calculateAutoLayoutPositions,
   calculateBranchPosition,
   calculateMergePosition,
+  getNodeLayoutMetrics,
 } from '../nodeLayout';
 import type { ChatNode, TopicEdge } from '../../types/flow';
 
@@ -124,6 +125,54 @@ describe('calculateMergePosition', () => {
 });
 
 describe('calculateAutoLayoutPositions', () => {
+  it('arranges mixed compact and expanded branches without invalid coordinates or overlap', () => {
+    const root = makeNode('root', 500, 100, 600, 700);
+    const compact = makeNode('compact', 200, 400);
+    compact.data.minimized = true;
+    compact.style = { width: 'auto', height: 'auto' };
+    const collapsed = makeNode('collapsed', 0, 0, 400, 500);
+    collapsed.data.collapsed = true;
+    const expanded = makeNode('expanded', 0, 600, 450, 800);
+    const merge = makeNode('merge', 900, 300);
+    const isolated = makeNode('isolated', 20, 900);
+    isolated.data.minimized = true;
+    isolated.style = { width: 'auto', height: 'auto' };
+    let nodes = [root, compact, collapsed, expanded, merge, isolated];
+    const edges = [makeEdge('root', 'compact'), makeEdge('root', 'collapsed'),
+      makeEdge('root', 'expanded'), makeEdge('compact', 'merge'), makeEdge('expanded', 'merge')];
+
+    for (let pass = 0; pass < 3; pass++) {
+      const positions = calculateAutoLayoutPositions(nodes, edges);
+      for (const node of nodes) {
+        expect(Number.isFinite(positions[node.id].x)).toBe(true);
+        expect(Number.isFinite(positions[node.id].y)).toBe(true);
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        for (const other of nodes.slice(i + 1)) {
+          const node = nodes[i];
+          const a = positions[node.id]; const b = positions[other.id];
+          const aSize = getNodeLayoutMetrics(node); const bSize = getNodeLayoutMetrics(other);
+          expect(a.x + aSize.width <= b.x || b.x + bSize.width <= a.x ||
+            a.y + aSize.height <= b.y || b.y + bSize.height <= a.y).toBe(true);
+        }
+      }
+      expect(positions.compact.x).toBe(700);
+      nodes = JSON.parse(JSON.stringify(nodes.map((node) => ({ ...node, position: positions[node.id] }))));
+    }
+  });
+
+  it('validates CSS sizes and falls back to measured or default dimensions', () => {
+    const node = makeNode('node', 0, 0);
+    node.style = { width: 'auto', height: '500px' };
+    node.measured = { width: 650, height: 700 };
+    expect(getNodeLayoutMetrics(node)).toEqual({ width: 650, height: 500 });
+    node.style = { width: Infinity, height: NaN };
+    node.measured = { width: 0, height: -20 };
+    expect(getNodeLayoutMetrics(node)).toEqual({ width: 400, height: 500 });
+    node.data.collapsed = true;
+    expect(getNodeLayoutMetrics(node)).toEqual({ width: 260, height: 148 });
+  });
+
   it('places root nodes at the leftmost column', () => {
     const root = makeNode('root', 500, 100);
     const child = makeNode('child', 900, 300);

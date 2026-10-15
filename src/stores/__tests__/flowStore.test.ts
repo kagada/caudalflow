@@ -7,6 +7,45 @@ beforeEach(() => {
 });
 
 describe('flowStore', () => {
+  it('closes only the active medium or large card without deleting or moving it', () => {
+    const first = useFlowStore.getState().addChatNode({ x: 120, y: 180 }, { topic: 'A' });
+    const second = useFlowStore.getState().addChatNode({ x: 700, y: 500 }, { topic: 'B', maximized: true });
+    useFlowStore.getState().closeActiveCard();
+    const nodes = useFlowStore.getState().nodes;
+    expect(nodes).toHaveLength(2);
+    expect(nodes.find(node => node.id === first)!.data.minimized).not.toBe(true);
+    expect(nodes.find(node => node.id === second)).toMatchObject({ position: { x: 700, y: 500 }, data: { minimized: true, maximized: false, _prevWidth: 400, _prevHeight: 500 } });
+    const unchanged = useFlowStore.getState().nodes;
+    useFlowStore.getState().closeActiveCard();
+    expect(useFlowStore.getState().nodes).toBe(unchanged);
+  });
+  it('creates ordinary chats beside the active conversation and above every existing node', () => {
+    const first = useFlowStore.getState().addChatNode({ x: 100, y: 200 }, { topic: 'A' });
+    const second = useFlowStore.getState().addChatNode({ x: 900, y: 800 }, { topic: 'B' });
+    useFlowStore.getState().activateNode(first);
+    const third = useFlowStore.getState().addNewChatNode({ x: 0, y: 0 }, { topic: 'New' });
+    const { nodes, activeNodeId } = useFlowStore.getState();
+    const created = nodes.find((node) => node.id === third)!;
+    expect(created.position).toEqual({ x: 148, y: 248 });
+    expect(activeNodeId).toBe(third);
+    expect(nodes.filter((node) => node.selected).map((node) => node.id)).toEqual([third]);
+    expect(created.zIndex).toBeGreaterThan(nodes.find((node) => node.id === first)!.zIndex!);
+    expect(created.zIndex).toBeGreaterThan(nodes.find((node) => node.id === second)!.zIndex!);
+  });
+
+  it('uses the supplied fallback when no active conversation exists', () => {
+    const id = useFlowStore.getState().addNewChatNode({ x: 120, y: 140 }, { topic: 'First' });
+    expect(useFlowStore.getState().nodes.find((node) => node.id === id)!.position).toEqual({ x: 120, y: 140 });
+  });
+
+  it('raising an active conversation does not break multi-selection', () => {
+    const first = useFlowStore.getState().addChatNode({ x: 0, y: 0 }, { topic: 'A' });
+    useFlowStore.getState().addChatNode({ x: 10, y: 10 }, { topic: 'B' });
+    useFlowStore.getState().setNodes(useFlowStore.getState().nodes.map((node) => ({ ...node, selected: true })));
+    useFlowStore.getState().activateNode(first);
+    expect(useFlowStore.getState().nodes.every((node) => node.selected)).toBe(true);
+  });
+
   describe('addChatNode', () => {
     it('adds a node with correct position and data', () => {
       const id = useFlowStore.getState().addChatNode(

@@ -26,6 +26,7 @@ describe('ChatNodeDeleteConfirmation', () => {
   };
 
   beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -38,13 +39,14 @@ describe('ChatNodeDeleteConfirmation', () => {
       root.unmount();
     });
     container.remove();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
   it('confirms deletion from the Delete button', () => {
     renderPopup();
 
-    const deleteButton = Array.from(container.querySelectorAll('button')).find(
+    const deleteButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Delete'),
     );
 
@@ -59,7 +61,7 @@ describe('ChatNodeDeleteConfirmation', () => {
   it('cancels from the Cancel button', () => {
     renderPopup();
 
-    const cancelButton = Array.from(container.querySelectorAll('button')).find(
+    const cancelButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent === 'Cancel',
     );
 

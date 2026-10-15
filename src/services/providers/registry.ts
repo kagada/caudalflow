@@ -3,6 +3,7 @@ import { MockProvider } from './mock';
 import { OpenAIProvider } from './openai';
 import { AnthropicProvider } from './anthropic';
 import { CustomProvider } from './custom';
+import { DeepSeekProvider } from './deepseek';
 
 const providers = new Map<string, LLMProvider>();
 
@@ -14,6 +15,7 @@ register(MockProvider);
 register(OpenAIProvider);
 register(AnthropicProvider);
 register(CustomProvider);
+register(DeepSeekProvider);
 
 export function getProvider(id: string): LLMProvider | undefined {
   return providers.get(id);

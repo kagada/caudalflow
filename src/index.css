@@ -16,6 +16,7 @@
   --color-text-muted: var(--text-muted);
   --color-border: var(--border-color);
   --color-border-hover: var(--border-hover);
+  --color-status-done: var(--status-done);
 }
 
 /* Dark theme (default) */
@@ -38,6 +39,7 @@
   --text-muted: #737373;
   --border-color: #262626;
   --border-hover: #404040;
+  --status-done: #34d399;
 }
 
 /* Light theme */
@@ -59,6 +61,7 @@
   --text-muted: #9ca3af;
   --border-color: #e5e7eb;
   --border-hover: #d1d5db;
+  --status-done: #047857;
 }
 
 html, body, #root {
@@ -117,6 +120,13 @@ html, body, #root {
 .react-flow__node .select-text * {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* 框选只选择卡片；结束或取消后恢复正文的正常文字选择。 */
+[data-canvas-box-selecting] .react-flow__node .select-text,
+[data-canvas-box-selecting] .react-flow__node .select-text * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 ::selection {
