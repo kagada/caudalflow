@@ -46,17 +46,18 @@ function SelectionHandler({ onSelectionChange }: { onSelectionChange: (params: O
 
 export function Canvas() {
   const { t } = useTranslation();
-  const { setCenter } = useReactFlow();
+  const { setCenter, getZoom } = useReactFlow();
   const [referenceStatus, setReferenceStatus] = useState('');
   const [referenceBusy, setReferenceBusy] = useState(false);
   useEffect(() => {
     const locate = (event: Event) => {
       const node = useFlowStore.getState().nodes.find((item) => item.id === (event as CustomEvent<string>).detail);
-      if (node) void setCenter(node.position.x + 200, node.position.y + 250, { zoom: 1, duration: 200 });
+      // 溯源只移动视野，保留用户当前的缩放比例。
+      if (node) void setCenter(node.position.x + 200, node.position.y + 250, { zoom: getZoom(), duration: 200 });
     };
     window.addEventListener('caudalflow:locate-reference', locate);
     return () => window.removeEventListener('caudalflow:locate-reference', locate);
-  }, [setCenter]);
+  }, [setCenter, getZoom]);
   const nodes = useFlowStore((s) => s.nodes);
   // 外层节点也必须缩小；只改内部卡片会留下旧尺寸和悬空锚点。
   const displayNodes = useMemo(() => nodes.map((node) => node.data.collapsed || node.data.minimized

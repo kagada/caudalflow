@@ -1,0 +1,70 @@
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '../../../i18n';
+import { useWorkspaceStore } from '../../../stores/workspaceStore';
+import { WorkspaceSelector } from '../WorkspaceSelector';
+
+vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
+const fake = vi.hoisted(() => ({ rename: vi.fn(), switch: vi.fn() }));
+vi.mock('../../../services/storage/desktop', () => ({ isDesktopStorage: () => true }));
+vi.mock('../../../services/storage/runtime', () => ({ renameDesktopWorkspace: fake.rename, switchDesktopWorkspace: fake.switch,
+  createDesktopWorkspace: vi.fn(), deleteDesktopWorkspace: vi.fn(), initializeDesktopStorage: vi.fn(), exportDesktopWorkspace: vi.fn() }));
+vi.mock('../StorageControls', () => ({ StorageControls: () => null }));
+
+let root: Root;
+let container: HTMLDivElement;
+beforeEach(async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
+  await i18n.changeLanguage('zh');
+  useWorkspaceStore.setState({ activeWorkspaceId: 'a', workspaces: ['a', 'b'].map((id) => ({ id, name: id, createdAt: 0, updatedAt: 0 })) });
+  fake.rename.mockImplementation(async (id, name) => useWorkspaceStore.getState().renameWorkspace(id, name));
+  fake.switch.mockImplementation(async (id) => useWorkspaceStore.getState().switchWorkspace(id));
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => root.render(<WorkspaceSelector />));
+});
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+
+async function edit(entry: 'title' | 'active' | 'other') {
+  if (entry !== 'title') await act(async () => container.querySelector('button')!.click());
+  const buttons = container.querySelectorAll<HTMLButtonElement>('button[title="重命名工作区"]');
+  await act(async () => buttons[entry === 'title' ? 0 : entry === 'active' ? 1 : 2].click());
+  const input = container.querySelector('input.w-48') as HTMLInputElement;
+  expect(input).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '新名称');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  return input;
+}
+
+describe('workspace rename entry points', () => {
+  for (const entry of ['title', 'active', 'other'] as const) {
+    for (const finish of ['Enter', 'blur'] as const) {
+      it(`${entry} commits with ${finish} and exits editing`, async () => {
+        const input = await edit(entry);
+        await act(async () => {
+          if (finish === 'Enter') input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          else input.blur();
+        });
+        expect(fake.rename).toHaveBeenCalledExactlyOnceWith(entry === 'other' ? 'b' : 'a', '新名称');
+        expect(container.querySelector('input.w-48')).toBeNull();
+        expect(container.textContent).toContain('新名称');
+      });
+    }
+  }
+  it('cancels a dropdown edit and allows starting a new edit', async () => {
+    const input = await edit('active');
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(fake.rename).not.toHaveBeenCalled(); expect(container.querySelector('input.w-48')).toBeNull();
+    const again = await edit('title');
+    await act(async () => again.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(fake.rename).toHaveBeenCalledOnce();
+  });
+  it('does not submit Enter while a Chinese input method is composing', async () => {
+    const input = await edit('active');
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
+    expect(fake.rename).not.toHaveBeenCalled(); expect(container.querySelector('input.w-48')).toBe(input);
+  });
+});

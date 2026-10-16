@@ -24,7 +24,7 @@ export function WorkspaceSelector() {
   const [editValue, setEditValue] = useState('');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const editingSession = useRef(false);
+  const editingSession = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -47,30 +47,41 @@ export function WorkspaceSelector() {
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  const startEditing = useCallback(() => {
-    if (!active) return;
-    editingSession.current = true;
-    setEditValue(active.name);
+  // 标题与下拉菜单必须共用入口，保存目标固定为开始编辑时的工作区。
+  const beginEditing = useCallback((id: string) => {
+    const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === id);
+    if (!workspace) return;
+    editingSession.current = id;
+    setEditValue(workspace.name);
     setEditing(true);
-  }, [active]);
+  }, []);
+
+  const startEditing = useCallback(() => {
+    if (active) beginEditing(active.id);
+  }, [active, beginEditing]);
 
   const commitRename = useCallback(() => {
-    if (!active || !editingSession.current) return;
-    editingSession.current = false;
+    const id = editingSession.current;
+    if (!id) return;
+    editingSession.current = null;
+    const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === id);
     const trimmed = editValue.trim();
-    if (trimmed && trimmed !== active.name) {
-      if (isDesktopStorage()) void renameDesktopWorkspace(active.id, trimmed);
-      else renameWorkspace(active.id, trimmed);
+    if (workspace && trimmed && trimmed !== workspace.name) {
+      if (isDesktopStorage()) void renameDesktopWorkspace(id, trimmed);
+      else renameWorkspace(id, trimmed);
     }
     setEditing(false);
-  }, [active, editValue, renameWorkspace]);
+  }, [editValue, renameWorkspace]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        e.preventDefault();
         commitRename();
       } else if (e.key === 'Escape') {
-        editingSession.current = false;
+        e.preventDefault();
+        editingSession.current = null;
         setEditing(false);
       }
     },
@@ -105,24 +116,17 @@ export function WorkspaceSelector() {
   );
 
   const handleRenameFromDropdown = useCallback(
-    (e: React.MouseEvent, id: string) => {
+    async (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      // Switch to the workspace first if it's not active, then start editing
+      setDropdownOpen(false);
+      // 等切换确实完成后再编辑，避免固定延时误把名称保存到另一个工作区。
       if (id !== activeWorkspaceId) {
-        if (isDesktopStorage()) void switchDesktopWorkspace(id);
+        if (isDesktopStorage()) await switchDesktopWorkspace(id);
         else switchWorkspace(id);
       }
-      setDropdownOpen(false);
-      // Small delay so the dropdown closes and the name is visible before editing
-      setTimeout(() => {
-        const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === id);
-        if (ws) {
-          setEditValue(ws.name);
-          setEditing(true);
-        }
-      }, 50);
+      if (useWorkspaceStore.getState().activeWorkspaceId === id) beginEditing(id);
     },
-    [activeWorkspaceId, switchWorkspace]
+    [activeWorkspaceId, switchWorkspace, beginEditing]
   );
 
   const handleImport = useCallback(() => fileRef.current?.click(), []);
