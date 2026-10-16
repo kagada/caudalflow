@@ -1,4 +1,6 @@
-import { prepareFirstQuestion } from '../../services/conversationTitle';
+import { createReference } from '../../services/references';
+import { startReferenceConversation } from '../../services/referenceConversation';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -8,6 +10,7 @@ import {
   MiniMap,
   SelectionMode,
   useOnSelectionChange,
+  useReactFlow,
   type NodeTypes,
   type EdgeTypes,
   type OnSelectionChangeParams,
@@ -23,8 +26,6 @@ import { WorkspaceSelector } from '../ui/WorkspaceSelector';
 import { MergeSelectionPopup } from './MergeSelectionPopup';
 import { WelcomePopup } from '../ui/WelcomePopup';
 import { calculateMergePosition, COMPACT_NODE_SIZE } from '../../utils/nodeLayout';
-import { getMergeSystemPrompt } from '../../utils/systemPrompts';
-import { streamChat } from '../../services/llm';
 import type { ChatNode } from '../../types/flow';
 import { useCanvasBoxSelection } from '../../hooks/useCanvasBoxSelection';
 import { useCanvasNodeSelection } from '../../hooks/useCanvasNodeSelection';
@@ -45,6 +46,17 @@ function SelectionHandler({ onSelectionChange }: { onSelectionChange: (params: O
 
 export function Canvas() {
   const { t } = useTranslation();
+  const { setCenter } = useReactFlow();
+  const [referenceStatus, setReferenceStatus] = useState('');
+  const [referenceBusy, setReferenceBusy] = useState(false);
+  useEffect(() => {
+    const locate = (event: Event) => {
+      const node = useFlowStore.getState().nodes.find((item) => item.id === (event as CustomEvent<string>).detail);
+      if (node) void setCenter(node.position.x + 200, node.position.y + 250, { zoom: 1, duration: 200 });
+    };
+    window.addEventListener('caudalflow:locate-reference', locate);
+    return () => window.removeEventListener('caudalflow:locate-reference', locate);
+  }, [setCenter]);
   const nodes = useFlowStore((s) => s.nodes);
   // 外层节点也必须缩小；只改内部卡片会留下旧尺寸和悬空锚点。
   const displayNodes = useMemo(() => nodes.map((node) => node.data.collapsed || node.data.minimized
@@ -198,90 +210,60 @@ export function Canvas() {
   );
 
   const handleMerge = useCallback(
-    (action: string) => {
-      const flowStore = useFlowStore.getState();
-      const chatStore = useChatStore.getState();
+    async (action: string) => {
+      if (referenceBusy) return;
+      setReferenceBusy(true); setReferenceStatus('正在整理引用背景…');
+      try {
+        const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+        const flowStore = useFlowStore.getState();
+        const chatStore = useChatStore.getState();
 
-      const parentIds = selectedNodes.map((n) => n.id);
-      const parentNodes = parentIds
-        .map((pid) => flowStore.nodes.find((n) => n.id === pid))
-        .filter((n): n is ChatNode => n !== null && n !== undefined);
+        const parentIds = selectedNodes.map((n) => n.id);
+        const parentNodes = parentIds
+          .map((pid) => flowStore.nodes.find((n) => n.id === pid))
+          .filter((n): n is ChatNode => n !== null && n !== undefined);
 
-      if (parentNodes.length < 2) return;
+        if (parentNodes.length < 2) { setReferenceStatus(''); return; }
+        const references = await Promise.all(parentIds.map((parentId) => createReference(parentId)));
+        if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('工作区已切换，请重新选择会话');
+        if (parentIds.some((id) => !useFlowStore.getState().nodes.some((node) => node.id === id))) throw new Error('来源会话已被删除，请重新选择会话');
 
-      // Calculate position
-      const position = calculateMergePosition(parentNodes);
+        // Calculate position
+        const position = calculateMergePosition(parentNodes);
 
-      // Build topic from action
-      const topicLabel = action.length > 30 ? action.slice(0, 30) + '...' : action;
+        // Build topic from action
+        const topicLabel = action.length > 30 ? action.slice(0, 30) + '...' : action;
 
-      // Create merge node
-      const newNodeId = flowStore.addChatNode(position, {
-        topic: topicLabel,
-        parentNodeIds: parentIds,
-        mergeAction: action,
-        collapsed: false,
-      });
+        // Create merge node
+        const newNodeId = flowStore.addChatNode(position, {
+          topic: topicLabel,
+          parentNodeIds: parentIds,
+          mergeAction: action,
+          collapsed: false,
+        });
 
-      deferConversationCommand(newNodeId);
-      // Create edge from each parent to the merge node
-      for (const parentId of parentIds) {
-        flowStore.addEdge(parentId, newNodeId, action);
-      }
+        deferConversationCommand(newNodeId);
+        // Create edge from each parent to the merge node
+        for (const parentId of parentIds) {
+          flowStore.addEdge(parentId, newNodeId, action);
+        }
 
-      // Initialize conversation
-      chatStore.initConversation(newNodeId);
+        // Initialize conversation
+        chatStore.initConversation(newNodeId);
 
-      // Build system prompt from parent data
-      const parents = parentNodes.map((node) => {
-        const msgs = chatStore.getMessages(node.id)
-          .map((m) => ({ role: m.role, content: m.content }));
-        return { topic: node.data.topic, messages: msgs };
-      });
-      const systemPrompt = getMergeSystemPrompt(parents, action);
-      chatStore.addMessage(newNodeId, 'system', systemPrompt);
+        startReferenceConversation(newNodeId, action, references);
+        setReferenceStatus('');
 
-      // Auto-send the user's action as first user message + stream LLM response
-      setTimeout(() => {
-        const store = useChatStore.getState();
-        const messages = store.getMessages(newNodeId);
-
-        store.addMessage(newNodeId, 'user', action);
-        prepareFirstQuestion(newNodeId, systemPrompt);
-        store.addMessage(newNodeId, 'assistant', '');
-        store.setStreaming(newNodeId, true);
-
-        const controller = new AbortController();
-
-        streamChat(
-          [...messages, { id: 'q', role: 'user' as const, content: action, timestamp: Date.now() }],
-          {
-            onToken: (token: string) => {
-              useChatStore.getState().appendToLastMessage(newNodeId, token);
-            },
-            onDone: () => {
-              useChatStore.getState().setStreaming(newNodeId, false);
-            },
-            onError: (error: Error) => {
-              useChatStore.getState().appendToLastMessage(
-                newNodeId,
-                `\n\n**Error:** ${error.message}`
-              );
-              useChatStore.getState().setStreaming(newNodeId, false);
-            },
-          },
-          controller.signal
+        // Clear selection — re-read current nodes so the newly added merge node isn't lost
+        const currentNodes = useFlowStore.getState().nodes;
+        useFlowStore.getState().setNodes(
+          currentNodes.map((n) => ({ ...n, selected: false }))
         );
-      }, 100);
-
-      // Clear selection — re-read current nodes so the newly added merge node isn't lost
-      const currentNodes = useFlowStore.getState().nodes;
-      useFlowStore.getState().setNodes(
-        currentNodes.map((n) => ({ ...n, selected: false }))
-      );
-      setSelectedNodes([]);
+        setSelectedNodes([]);
+      } catch (failure) { setReferenceStatus(String(failure)); }
+      finally { setReferenceBusy(false); }
     },
-    [selectedNodes]
+    [selectedNodes, referenceBusy]
   );
 
   const handleDismissPopup = useCallback(() => {
@@ -306,7 +288,8 @@ export function Canvas() {
     <div className="w-full h-full flex flex-col">
       <WorkspaceSelector />
       <div className="flex-1 relative" ref={canvasRef} onPointerDownCapture={handleCanvasPointerDown} onClickCapture={selectNodeOnClick}>
-        <ReactFlow
+        {referenceStatus && <div role={referenceBusy ? "status" : "alert"} className="absolute bottom-4 left-1/2 z-50 max-w-lg rounded-lg border border-border bg-surface-900 px-4 py-2 text-sm text-text-secondary">{referenceStatus}<button className="ml-3" onClick={() => setReferenceStatus('')}>关闭</button></div>}
+      <ReactFlow
           nodes={displayNodes}
           edges={edges}
           onNodesChange={onNodesChange}

@@ -6,7 +6,10 @@ import { useChatStore } from '../../stores/chatStore';
 import { useFlowStore } from '../../stores/flowStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAutoScroll } from '../../hooks/useAutoScroll';
-import { useTextSelection } from '../../hooks/useTextSelection';
+import { useTextSelection, selectionDocuments } from '../../hooks/useTextSelection';
+import type { ReferenceSelection } from '../../types/chat';
+import { createReference } from '../../services/references';
+import { copyReference } from '../../services/referenceClipboard';
 import { ChatMessage } from './ChatMessage';
 import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
@@ -15,7 +18,7 @@ import { isDesktopStorage } from '../../services/storage/desktop';
 
 interface ChatMessageListProps {
   nodeId: string;
-  onExplore: (selectedText: string, prompt: string) => void;
+  onExplore: (selectedText: string, prompt: string, sources?: ReferenceSelection[]) => void;
   onRevise?: (messageId: string, prompt?: string) => void;
 }
 
@@ -27,7 +30,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
   const streamingMessageId = useChatStore((s) => s.conversations[nodeId]?.streamingMessageId);
   const showSystemPrompts = useSettingsStore((s) => s.showSystemPrompts);
   const messages = useMemo(
-    () => showSystemPrompts ? allMessages : allMessages.filter((m) => m.role !== 'system'),
+    () => showSystemPrompts ? allMessages : allMessages.filter((m) => m.role !== 'system' || m.kind === 'reference'),
     [allMessages, showSystemPrompts]
   );
   const exploredTexts = useFlowStore(useShallow(
@@ -49,7 +52,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
     // 直接读取浏览器选区，不受悬浮分支按钮的状态或文字长度限制。
     if (text && selected?.rangeCount && selected.getRangeAt(0).intersectsNode(containerRef.current!)) {
       event.preventDefault(); event.stopPropagation(); setPopupOpen(false); clearSelection();
-      setMenu({ kind: 'selection', text, x: event.clientX, y: event.clientY });
+      setMenu({ kind: 'selection', text, sources: selectionDocuments(containerRef.current!, selected.getRangeAt(0)), x: event.clientX, y: event.clientY });
       return;
     }
     const id = (event.target as HTMLElement).closest('[data-message-id]')?.getAttribute('data-message-id');
@@ -64,8 +67,9 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
   }, [clearSelection]);
 
   const handleExplore = (selectedText: string, prompt: string) => {
+    const sources = menu?.kind === 'selection' ? menu.sources : selection?.sources;
     dismiss();
-    onExplore(selectedText, prompt);
+    onExplore(selectedText, prompt, sources);
   };
 
   // When a new selection is made, reset to the small button
@@ -94,9 +98,12 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         )}
       </div>
       {versionDocument && <DocumentVersions nodeId={nodeId} documentId={versionDocument} close={() => setVersionDocument(null)} />}
-      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isDesktopStorage() ? setVersionDocument : undefined} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {
+      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isDesktopStorage() ? setVersionDocument : undefined} copyReference={async () => {
+        if (menu.kind === 'message' && menu.message.reference) await copyReference(menu.message.reference);
+        else await copyReference(await createReference(nodeId, menu.kind === 'selection' ? menu.sources : [{ documentId: menu.message.id, text: menu.message.content }]));
+      }} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {
         const store = useChatStore.getState();
-        store.setConversationMessages(nodeId, store.getMessages(nodeId).filter((message) => message.id !== id));
+        store.setConversationMessages(nodeId, store.getMessages(nodeId).filter((message) => message.id !== id && message.referenceForId !== id));
       }} />}
       {selection && !popupOpen && (
         <div

@@ -16,7 +16,8 @@ export function prepareFirstQuestion(nodeId: string, context: string): void {
     ['New Chat', '新建对话', '新建会话'].includes(node.data.topic) ||
     node.data.topic === node.data.branchText || Boolean(node.data.mergeAction)
   ));
-  const temporary = question.content.replace(/\s+/g, ' ').trim().slice(0, 24) || '图片提问';
+  const titleContent = question.content || messages.find((message) => message.reference)?.reference?.quote || '';
+  const temporary = titleContent.replace(/\s+/g, ' ').trim().slice(0, 24) || '图片提问';
   if (canName) useFlowStore.getState().updateNodeData(nodeId, { topic: temporary, titleSource: 'temporary' });
   if (isDesktopStorage()) recordFirstQuestion(nodeId);
   if (!canName) return;
@@ -30,7 +31,7 @@ export function prepareFirstQuestion(nodeId: string, context: string): void {
         first?.id === question.id && first.content === question.content;
     };
     if (!stillCurrent()) return;
-    generateTitle(question.content || '请根据所附图片概括主题', context, (title) => {
+    generateTitle(titleContent || '请根据所附图片概括主题', context, (title) => {
       if (stillCurrent()) useFlowStore.getState().updateNodeData(nodeId, { topic: title, titleSource: 'generated' });
     });
   });

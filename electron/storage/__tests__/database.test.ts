@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceData } from '../../../src/types/workspace';
+import { sampleReference } from '../../../src/services/__tests__/referenceFixtures';
 
 const require = createRequire(import.meta.url);
 const { WorkspaceDatabase } = require('../database.cjs');
@@ -21,6 +22,35 @@ describe('SQLite workspace and independent local history', () => {
     workspace = new WorkspaceDatabase(join(root, 'workspace.caudalflow'), join(root, 'personal'), { create: true, metadata: { id: 'w1', name: '测试', createdAt: 1, updatedAt: 1 } });
   });
   afterEach(() => { workspace?.close(); rmSync(root, { recursive: true, force: true }); });
+
+  it('keeps a reference as an independent versioned document after its source conversation is deleted', () => {
+    const data = example(); const reference = sampleReference();
+    data.nodes.push({ id: 'child', type: 'chat', position: { x: 100, y: 0 }, data: { topic: '子会话' } });
+    data.conversations.child = { nodeId: 'child', isStreaming: false, messages: [
+      { id: 'r1', role: 'system', kind: 'reference', reference, referenceForId: 'cq', content: reference.summary, timestamp: 3 },
+      { id: 'cq', role: 'user', content: '继续提问', timestamp: 4 },
+    ] };
+    workspace.save(data);
+    const version = workspace.load().data.conversations.child.messages[0].versionId;
+    data.nodes = data.nodes.filter((node) => node.id === 'child'); delete data.conversations.c1;
+    workspace.save(data);
+    const stored = workspace.load().data.conversations.child.messages[0];
+    expect(stored).toMatchObject({ kind: 'reference', referenceForId: 'cq', versionId: version, reference });
+    expect(workspace.readVersion('r1', version)).toMatchObject({ reference });
+  });
+
+  it('persists reusable summary caches without adding user history and validates incoming snapshots', () => {
+    const historyCount = workspace.listHistory().length;
+    workspace.referenceCachePut('b'.repeat(64), '共享摘要');
+    expect(workspace.referenceCacheGet('b'.repeat(64))).toBe('共享摘要');
+    expect(workspace.listHistory()).toHaveLength(historyCount);
+    const filename = workspace.filename; workspace.close();
+    workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
+    expect(workspace.referenceCacheGet('b'.repeat(64))).toBe('共享摘要');
+    const bad = example(); const reference = sampleReference(); reference.sources[0].length = 999;
+    bad.conversations.c1.messages.push({ id: 'r1', role: 'system', kind: 'reference', reference, content: reference.summary, timestamp: 3 });
+    expect(() => workspace.save(bad)).toThrow('引用快照');
+  });
 
   it.each(['title-first', 'reply-first'])('persists one stable initialization record: %s', (order) => {
     const created = example(); created.conversations.c1.messages = []; created.nodes[0].data.titleSource = 'pending';

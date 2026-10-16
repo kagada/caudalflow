@@ -53,7 +53,7 @@ function groups(before: ChatMessage[], after: ChatMessage[]) {
   const collect = (messages: ChatMessage[]) => {
     const result = new Map<string, MessageGroup>();
     for (const message of messages) {
-      const owner = message.role === 'user' ? message.id : message.role === 'assistant' ? message.replyToId ?? explicit.get(message.id) ?? owners.get(message.id) : undefined;
+      const owner = message.kind === 'reference' ? message.referenceForId : message.role === 'user' ? message.id : message.role === 'assistant' ? message.replyToId ?? explicit.get(message.id) ?? owners.get(message.id) : undefined;
       const id = owner ? `question:${owner}` : `document:${message.id}`;
       const group = result.get(id) ?? { id, messages: [], inferred: false };
       group.messages.push(message);
@@ -71,8 +71,9 @@ function messageSections(before: ChatMessage[], after: ChatMessage[]): HistorySe
     const old = before.find((message) => message.id === id);
     const next = after.find((message) => message.id === id);
     const message = next ?? old!;
-    const role = message.role === 'user' ? '问题' : message.role === 'assistant' ? '回复文档' : '系统提示';
+    const role = message.kind === 'reference' ? '引用' : message.role === 'user' ? '问题' : message.role === 'assistant' ? '回复文档' : '系统提示';
     const sections: HistorySection[] = [{ id, title: role, before: old, after: next, beforeText: old?.content ?? '', afterText: next?.content ?? '' }];
+    if (old?.reference || next?.reference) sections.push({ id: `${id}:reference`, title: '引用原文与来源', beforeText: old?.reference ? serialize(old.reference) : '', afterText: next?.reference ? serialize(next.reference) : '' });
     if (old?.reasoning || next?.reasoning) sections.push({ id: `${id}:reasoning`, title: `${role} · 思考内容`, beforeText: old?.reasoning ?? '', afterText: next?.reasoning ?? '' });
     const info = (item?: ChatMessage) => item ? { 角色: item.role, 创建时间: item.timestamp, 来源: item.triggeredBy, 对应问题: item.replyToId, 生成状态: item.generationStatus } : undefined;
     if (old && next && serialize(info(old)) !== serialize(info(next))) sections.push({ id: `${id}:metadata`, title: `${role} · 属性`, beforeText: serialize(info(old)) ?? '', afterText: serialize(info(next)) ?? '' });

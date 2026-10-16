@@ -102,6 +102,8 @@ const handlers = {
   },
   export: ({ id, filename }) => database(id).exportTo(filename),
   history: ({ id }) => database(id).listHistory(),
+  referenceCacheGet: ({ id, key }) => database(id).referenceCacheGet(key),
+  referenceCachePut: ({ id, key, summary }) => database(id).referenceCachePut(key, summary),
   historyDetail: ({ id, historyId }) => database(id).readHistory(historyId),
   restore: ({ id, historyId, side, conversationId, selection }) => database(id).restoreHistory(historyId, side, conversationId, selection),
   versions: ({ id, documentId }) => database(id).listVersions(documentId),

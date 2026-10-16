@@ -1,4 +1,7 @@
-import { prepareFirstQuestion } from '../../services/conversationTitle';
+import { createReference, selectionsForText } from '../../services/references';
+import { copyReference } from '../../services/referenceClipboard';
+import { startReferenceConversation } from '../../services/referenceConversation';
+import type { ReferenceSelection } from '../../types/chat';
 import { createPortal } from 'react-dom';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,11 +10,10 @@ import type { NodeProps } from '@xyflow/react';
 import { Maximize2, Trash2, CircleCheck, Circle } from 'lucide-react';
 import type { ChatNode } from '../../types/flow';
 import { useChatStore } from '../../stores/chatStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useFlowStore } from '../../stores/flowStore';
 import { useNodeCopilotChat } from '../../hooks/useNodeCopilotChat';
-import { streamChat } from '../../services/llm';
 import { calculateBranchPosition } from '../../utils/nodeLayout';
-import { getBranchSystemPrompt } from '../../utils/systemPrompts';
 import { ChatNodeHeader } from './ChatNodeHeader';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatInput } from './ChatInput';
@@ -34,6 +36,8 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [panelPoint, setPanelPoint] = useState<PanelPoint | undefined>();
   const [isPanning, setIsPanning] = useState(false);
+  const [referenceError, setReferenceError] = useState('');
+  const [referenceBusy, setReferenceBusy] = useState(false);
   const { sendMessage, cancelStream, reviseMessage } = useNodeCopilotChat(id, topic, parentNodeId, branchText, parentNodeIds as string[] | undefined, mergeAction as string | undefined);
 
   // Listen for space key and delete key
@@ -74,7 +78,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
   const preview = useChatStore((s) => s.conversations[id]?.messages.filter((message) => message.role !== 'system').at(-1)?.content ?? '');
   const messageCount = useChatStore(
     (s) =>
-      s.conversations[id]?.messages.filter((m) => m.role !== "system").length ??
+      s.conversations[id]?.messages.filter((m) => m.role !== "system" || m.kind === 'reference').length ??
       0,
   );
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -204,8 +208,12 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
     useChatStore.getState().removeConversation(id);
   }, [id]);
 
-  const handleExplore = useCallback(
-    (selectedText: string, prompt: string) => {
+  const handleExplore = useCallback(async (selectedText: string, prompt: string, sources?: ReferenceSelection[]) => {
+    if (referenceBusy) return;
+    setReferenceBusy(true); setReferenceError('');
+    try {
+      const reference = await createReference(id, sources?.length ? sources : selectionsForText(id, selectedText));
+      if (reference.sources[0].workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) throw new Error('工作区已切换，请重新发起分支');
       const flowStore = useFlowStore.getState();
       let parentNode = flowStore.nodes.find((n) => n.id === id);
       if (!parentNode) return;
@@ -229,70 +237,11 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       flowStore.addEdge(id, newNodeId, selectedText);
       deferConversationCommand(newNodeId);
 
-      // Initialize conversation with branch context
-      const chatStore = useChatStore.getState();
-      chatStore.initConversation(newNodeId);
-
-      const parentMessages = chatStore
-        .getMessages(id)
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      const systemPrompt = getBranchSystemPrompt(topic, parentMessages);
-      chatStore.addMessage(newNodeId, "system", systemPrompt);
-
-      // First user message: popup input + highlighted text
-      const firstMessage = prompt
-        ? `${prompt}\n\n> "${selectedText}"`
-        : selectedText;
-
-      // Auto-send first message
-      setTimeout(() => {
-        const store = useChatStore.getState();
-        const messages = store.getMessages(newNodeId);
-
-        store.addMessage(newNodeId, "user", firstMessage);
-        prepareFirstQuestion(newNodeId, systemPrompt);
-        store.addMessage(newNodeId, "assistant", "");
-        store.setStreaming(newNodeId, true);
-
-        const controller = new AbortController();
-
-        streamChat(
-          [
-            ...messages,
-            {
-              id: "q",
-              role: "user" as const,
-              content: firstMessage,
-              timestamp: Date.now(),
-            },
-          ],
-          {
-            onToken: (token: string) => {
-              useChatStore.getState().appendToLastMessage(newNodeId, token);
-            },
-            onReasoning: (token: string) => {
-              useChatStore.getState().appendReasoningToLastMessage(newNodeId, token);
-            },
-            onDone: () => {
-              useChatStore.getState().setStreaming(newNodeId, false);
-            },
-            onError: (error: Error) => {
-              useChatStore
-                .getState()
-                .appendToLastMessage(
-                  newNodeId,
-                  `\n\n**Error:** ${error.message}`,
-                );
-              useChatStore.getState().setStreaming(newNodeId, false);
-            },
-          },
-          controller.signal,
-        );
-      }, 100);
-    },
-    [id, topic],
-  );
+      useChatStore.getState().initConversation(newNodeId);
+      startReferenceConversation(newNodeId, prompt || '请解释引用的内容。', [reference]);
+    } catch (failure) { setReferenceError(String(failure)); }
+    finally { setReferenceBusy(false); }
+  }, [id, referenceBusy]);
 
   const updateColor = (newColor?: string) => {
     useFlowStore.getState().updateNodeData(id, { color: newColor });
@@ -374,6 +323,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
         maximized={!!maximized}
         done={!!done}
         onToggleDone={handleToggleDone}
+        onCopyReference={async () => { await copyReference(await createReference(id)); }}
         isPanning={isPanning}
         onMinimize={handleMinimize}
         onMaximize={handleMaximize}
@@ -443,6 +393,8 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
         </FloatingNodePanel>
       )}
 
+      {referenceBusy && <p role="status" className="px-4 py-2 text-xs text-text-muted">正在整理分支引用…</p>}
+      {referenceError && <p role="alert" className="px-4 py-2 text-xs text-red-400">{referenceError}</p>}
       <ChatMessageList nodeId={id} onExplore={handleExplore} onRevise={reviseMessage} />
       <ChatInput nodeId={id} onSend={sendMessage} onCancel={cancelStream} />
     </div>

@@ -1,9 +1,12 @@
+import { addQuestionWithReferences } from '../services/references';
+import { cancelReferenceConversation } from '../services/referenceConversation';
+import type { ContentReference } from '../types/chat';
 import { prepareFirstQuestion } from '../services/conversationTitle';
 import { useCallback, useRef } from 'react';
 import { useChatStore } from '../stores/chatStore';
-import { useFlowStore } from '../stores/flowStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 import { streamChat } from '../services/llm';
-import { getRootSystemPrompt, getBranchSystemPrompt, getMergeSystemPrompt } from '../utils/systemPrompts';
+import { conversationSystemPrompt } from '../services/conversationContext';
 import type { ChatMessage } from '../types/chat';
 import { validateImage, fileToBase64 } from '../utils/image';
 import { reviseMessage } from '../services/messageActions';
@@ -12,14 +15,15 @@ export function useNodeCopilotChat(
   nodeId: string,
   topic: string,
   parentNodeId?: string,
-  branchText?: string,
+  _branchText?: string,
   parentNodeIds?: string[],
   mergeAction?: string,
 ) {
   const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string, files: File[] = []) => {
+    async (content: string, files: File[] = [], references: ContentReference[] = []) => {
+      const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
       const processedImages = await Promise.all(
         files.map(async (file) => {
           validateImage(file);
@@ -28,7 +32,9 @@ export function useNodeCopilotChat(
       );
 
       const store = useChatStore.getState();
-      store.addMessage(nodeId, 'user', content, processedImages.length ? processedImages : undefined);
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || !store.conversations[nodeId]) throw new Error('会话已切换或删除，请重新发送');
+      if (store.conversations[nodeId].isStreaming) throw new Error('请先等待回复完成或停止生成');
+      addQuestionWithReferences(nodeId, content, processedImages.length ? processedImages : undefined, references);
       const messages = store.getMessages(nodeId);
 
       // Tell the agent which node is active — the bridge picks this up on the next sync
@@ -36,40 +42,14 @@ export function useNodeCopilotChat(
         (parentNodeIds?.length ?? 0) >= 2 ? 'merge' : parentNodeId ? 'branch' : 'root';
       useChatStore.getState().setActiveNodeContext({ nodeId, mode, topic, mergeAction });
 
-      // Build system prompt (same logic as useChatNode)
-      let systemPrompt: string;
-      if ((parentNodeIds?.length ?? 0) >= 2 && mergeAction) {
-        const flowNodes = useFlowStore.getState().nodes;
-        const parents = parentNodeIds!
-          .map((pid) => {
-            const node = flowNodes.find((n) => n.id === pid);
-            if (!node) return null;
-            const msgs = useChatStore
-              .getState()
-              .getMessages(pid)
-              .map((m) => ({ role: m.role, content: m.content }));
-            return { topic: node.data.topic, messages: msgs };
-          })
-          .filter((p) => p !== null);
-        systemPrompt = getMergeSystemPrompt(parents, mergeAction);
-      } else if (parentNodeId && branchText) {
-        const parentMessages = useChatStore
-          .getState()
-          .getMessages(parentNodeId)
-          .map((m) => ({ role: m.role, content: m.content }));
-        const parentTopic =
-          parentMessages.find((m) => m.role === 'user')?.content ?? topic;
-        systemPrompt = getBranchSystemPrompt(parentTopic, parentMessages);
-      } else {
-        systemPrompt = getRootSystemPrompt();
-      }
+      const systemPrompt = conversationSystemPrompt(nodeId);
 
       const fullMessages: ChatMessage[] = [
         { id: 'system', role: 'system', content: systemPrompt, timestamp: 0 },
         ...messages,
       ];
 
-      prepareFirstQuestion(nodeId, systemPrompt);
+      prepareFirstQuestion(nodeId, messages.filter((message) => message.kind === 'reference').map((message) => message.content).join('\n\n') || systemPrompt);
 
       store.addMessage(nodeId, 'assistant', '');
       store.setStreaming(nodeId, true);
@@ -100,10 +80,11 @@ export function useNodeCopilotChat(
         controller.signal,
       );
     },
-    [nodeId, topic, parentNodeId, branchText, parentNodeIds, mergeAction],
+    [nodeId, topic, parentNodeId, parentNodeIds, mergeAction],
   );
 
   const cancelStream = useCallback(() => {
+    cancelReferenceConversation(nodeId);
     abortRef.current?.abort();
     useChatStore.getState().setStreaming(nodeId, false);
   }, [nodeId]);

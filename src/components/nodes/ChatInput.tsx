@@ -2,10 +2,12 @@ import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Square, Paperclip, X } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import type { ContentReference } from '../../types/chat';
+import { readReferenceClipboard } from '../../services/referenceClipboard';
 
 interface ChatInputProps {
   nodeId: string;
-  onSend: (message: string, images: File[]) => void;
+  onSend: (message: string, images: File[], references?: ContentReference[]) => void | Promise<void>;
   onCancel: () => void;
   supportsVision?: boolean;
 }
@@ -20,6 +22,9 @@ export function ChatInput({
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [references, setReferences] = useState<ContentReference[]>([]);
+  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -27,19 +32,20 @@ export function ChatInput({
     (s) => s.conversations[nodeId]?.isStreaming ?? false
   );
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if ((!trimmed && images.length === 0) || isStreaming) return;
+    if ((!trimmed && images.length === 0 && references.length === 0) || isStreaming || sending) return;
 
-    onSend(trimmed, images);
-    setInput('');
-    setImages([]);
-  }, [input, images, isStreaming, onSend]);
+    setSending(true); setError('');
+    try { await onSend(trimmed, images, references); setInput(''); setImages([]); setReferences([]); }
+    catch (failure) { setError(String(failure)); }
+    finally { setSending(false); }
+  }, [input, images, references, isStreaming, sending, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -65,6 +71,10 @@ export function ChatInput({
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
+    try {
+      const reference = readReferenceClipboard(e.clipboardData.getData('text/html'));
+      if (reference) { e.preventDefault(); setReferences((old) => [...old, reference]); setError(''); return; }
+    } catch (failure) { setError(String(failure)); }
     const items = e.clipboardData.items;
 
     for (const item of items) {
@@ -93,6 +103,11 @@ export function ChatInput({
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
+      {references.length > 0 && <div aria-label="待发送引用" className="mb-2 space-y-2">{references.map((reference, index) => <div key={`${reference.id}-${index}`} className="flex items-start gap-2 rounded-lg border border-border bg-surface-800 p-2 text-xs text-text-secondary">
+        <details className="min-w-0 flex-1"><summary className="cursor-pointer truncate">引用 · {reference.sources.map((source) => source.title).join('、')}</summary><p className="mt-2 whitespace-pre-wrap break-words">{reference.summary}</p><blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-border pl-2">{reference.quote}</blockquote></details>
+        <button aria-label={`移除引用 ${index + 1}`} onClick={() => setReferences((old) => old.filter((_, item) => item !== index))}><X size={14} /></button>
+      </div>)}</div>}
+      {error && <p role="alert" className="mb-2 text-xs text-red-400">{error}</p>}
       {images.length > 0 && (
         <div className="flex gap-2 mb-2 flex-wrap">
           {images.map((file, i) => (
@@ -167,7 +182,7 @@ export function ChatInput({
         ) : (
           <button
             onClick={handleSend}
-            disabled={!input.trim() && images.length === 0}
+            disabled={sending || (!input.trim() && images.length === 0 && references.length === 0)}
             className="shrink-0 p-2 rounded-lg bg-accent-500/20 text-accent-400 hover:bg-accent-500/30 transition-colors disabled:opacity-30"
           >
             <Send size={16} />

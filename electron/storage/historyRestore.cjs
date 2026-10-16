@@ -16,7 +16,7 @@ function restoreSelection(current, before, after, side, conversationId, selectio
     if (!ids.size || [...ids].some((id) => !allowed.has(id))) throw new Error('选中文档不属于该记录的会话');
     const questions = new Set([...oldMessages, ...nextMessages].filter((message) => message.role === 'user' && ids.has(message.id)).map((message) => message.id));
     // 新记录有明确问答关联：还原一组问答时，其后来新增的回复也属于该范围。
-    for (const message of result.conversations[conversationId]?.messages ?? []) if (message.replyToId && questions.has(message.replyToId)) ids.add(message.id);
+    for (const message of result.conversations[conversationId]?.messages ?? []) if ((message.replyToId && questions.has(message.replyToId)) || (message.referenceForId && questions.has(message.referenceForId))) ids.add(message.id);
     const sourceMessages = source.conversations[conversationId]?.messages ?? [];
     const wanted = sourceMessages.filter((message) => ids.has(message.id));
     if (!node && wanted.length) {

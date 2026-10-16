@@ -13,14 +13,17 @@ interface ChatNodeHeaderProps {
   onDelete: (point?: PanelPoint) => void;
   onTogglePalette: (point?: PanelPoint) => void;
   onToggleDone: () => void;
+  onCopyReference?: () => Promise<void>;
   color?: string;
   label?: string;
 }
 
 // X 只收起卡片；删除与标签设置收进左侧菜单，避免被误认为窗口关闭。
-export function ChatNodeHeader({ topic, maximized, done, isPanning, onMinimize, onMaximize, onDelete, onTogglePalette, onToggleDone, color, label }: ChatNodeHeaderProps) {
+export function ChatNodeHeader({ topic, maximized, done, isPanning, onMinimize, onMaximize, onDelete, onTogglePalette, onToggleDone, onCopyReference, color, label }: ChatNodeHeaderProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [error, setError] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -39,6 +42,11 @@ export function ChatNodeHeader({ topic, maximized, done, isPanning, onMinimize, 
         <button onClick={() => setOpen(value => !value)} className={`${btnClass} text-text-secondary`} title={t('node.cardMenu')} aria-label={t('node.cardMenu')} aria-haspopup="menu" aria-expanded={open}><Menu size={18} /></button>
         {open && <div role="menu" aria-label={t('node.cardMenu')} className="nodrag nopan absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border border-border bg-surface-900 p-2 shadow-xl">
           <button role="menuitem" className={itemClass} onClick={() => perform(onToggleDone)}>{done ? <Circle size={16} /> : <CircleCheck size={16} />}{t(done ? 'node.markNotDone' : 'node.markDone')}</button>
+          {onCopyReference && <button role="menuitem" className={itemClass} disabled={copying} onClick={async () => {
+            setCopying(true); setError('');
+            try { await onCopyReference(); setOpen(false); } catch (failure) { setError(String(failure)); } finally { setCopying(false); }
+          }}><Copy size={16} />{copying ? '正在整理引用…' : '复制引用'}</button>}
+          {error && <p role="alert" className="px-3 text-xs text-red-400">{error}</p>}
           <button role="menuitem" className={itemClass} onClick={(event) => perform(() => onTogglePalette(event.detail ? { x: event.clientX, y: event.clientY } : undefined))}><Palette size={16} />{t('node.addLabelAndColor')}</button>
           <button role="menuitem" className={`${itemClass} text-red-400`} onClick={(event) => perform(() => onDelete(event.detail ? { x: event.clientX, y: event.clientY } : undefined))}><Trash2 size={16} />{t('node.deleteConversation')}</button>
           <div role="separator" className="my-2 border-t border-border" />

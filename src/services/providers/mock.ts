@@ -13,6 +13,9 @@ const MOCK_RESPONSES: Record<string, string[]> = {
 
 function getResponseForTopic(messages: ChatMessage[]): string {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+  if (messages[0]?.role === 'system' && messages[0].content.startsWith('将以下学习对话整理')) {
+    return `学习背景摘要：${messages.filter((message) => message.role !== 'system').map((message) => message.content).join('\n').slice(0, 1200)}`;
+  }
 
   // 开发模式也返回短标题，避免把整段模拟回答当作会话名称。
   if (messages[0]?.role === 'system' && messages[0].content.includes('根据首次问题提炼')) {

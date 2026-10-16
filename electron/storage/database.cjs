@@ -20,6 +20,13 @@ function validateData(data) {
     nodes.add(node.id);
     for (const message of data.conversations[node.id]?.messages ?? []) {
       if (!message.id || documents.has(message.id) || !['user', 'assistant', 'system'].includes(message.role) || typeof message.content !== 'string' || !Number.isFinite(message.timestamp)) throw new Error('文档 ID、角色、正文或时间无效');
+      if (message.kind === 'reference') {
+        const reference = message.reference;
+        if (message.role !== 'system' || !reference || typeof reference.id !== 'string' || typeof reference.summary !== 'string' || typeof reference.quote !== 'string' ||
+          !Array.isArray(reference.sources) || !reference.sources.length || !reference.sources.every((source) => source && typeof source.workspaceId === 'string' &&
+            typeof source.conversationId === 'string' && typeof source.documentId === 'string' && typeof source.title === 'string' && typeof source.documentText === 'string' &&
+            Number.isInteger(source.start) && Number.isInteger(source.length) && source.start >= 0 && source.length >= 0 && source.start + source.length <= source.documentText.length)) throw new Error('引用快照或来源位置无效');
+      }
       documents.add(message.id);
       for (const image of message.images ?? []) {
         if (typeof image.mimeType !== 'string' || typeof image.base64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(image.base64)) throw new Error('图片数据无效');
@@ -86,6 +93,8 @@ class WorkspaceDatabase {
       if (!options.create && (appId !== APPLICATION_ID || version !== SCHEMA_VERSION)) throw new Error('这不是支持的 CaudalFlow 工作区文件');
       this.db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;');
       if (options.create) this.initialize(options.metadata);
+      // 摘要是可复用的派生缓存，引用正文仍独立保存在文档版本中。
+      this.db.exec('CREATE TABLE IF NOT EXISTS reference_summaries (key TEXT PRIMARY KEY, summary TEXT NOT NULL, created_at INTEGER NOT NULL)');
       this.metadata = JSON.parse(this.db.prepare('SELECT value FROM workspace_meta WHERE key=?').get('metadata').value);
       fs.mkdirSync(historyDirectory, { recursive: true });
       // ATTACH 配合回滚日志，让工作区和独立历史参与同一事务；不使用破坏跨库原子性的 WAL。
@@ -126,6 +135,18 @@ class WorkspaceDatabase {
   }
 
   get revision() { return Number(this.db.prepare('SELECT value FROM workspace_meta WHERE key=?').get('revision').value); }
+
+  referenceCacheGet(key) {
+    if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key)) throw new Error('摘要标识无效');
+    return this.db.prepare('SELECT summary FROM reference_summaries WHERE key=?').get(key)?.summary ?? null;
+  }
+
+  referenceCachePut(key, summary) {
+    if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key) || typeof summary !== 'string' || !summary.trim() || summary.length > 200000) throw new Error('摘要内容无效');
+    this.db.prepare('INSERT OR REPLACE INTO reference_summaries VALUES (?,?,?)').run(key, summary, Date.now());
+    this.db.exec('DELETE FROM reference_summaries WHERE key IN (SELECT key FROM reference_summaries ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET 500)');
+    return true;
+  }
 
   // 只从组织关系读取当前版本；旧版本仍以相同文档 ID 归组，不复制整份会话。
   load() {

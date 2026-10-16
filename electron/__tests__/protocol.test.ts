@@ -3,10 +3,21 @@ import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const { createProtocolHandler } = require('../protocol.cjs') as {
-  createProtocolHandler: (directory: string, fetcher: typeof fetch) => (request: Request) => Promise<Response>;
+  createProtocolHandler: (directory: string, fetcher: typeof fetch, storage?: unknown, clipboard?: { write: (formats: { text: string; html: string }) => void }) => (request: Request) => Promise<Response>;
 };
 
 describe('desktop protocol', () => {
+  it('writes readable text and reference metadata together without allowing clipboard reads', async () => {
+    const clipboard = { write: vi.fn() };
+    const handler = createProtocolHandler('D:/app/dist', vi.fn(), undefined, clipboard);
+    const formats = { text: '可读引用', html: '<div data-caudalflow-reference="metadata">可读引用</div>' };
+    const request = (origin: string) => new Request('app://caudalflow/api/clipboard', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(formats) });
+    expect((await handler(request('app://caudalflow'))).status).toBe(200);
+    expect(clipboard.write).toHaveBeenCalledWith(formats);
+    expect((await handler(request('https://unrelated.example'))).status).toBe(403);
+    expect((await handler(new Request('app://caudalflow/api/clipboard'))).status).toBe(405);
+    expect(clipboard.write).toHaveBeenCalledTimes(1);
+  });
   it('forwards API authentication and preserves the response stream without browser headers', async () => {
     const reply = new Response('data: reply\n\n', { headers: { 'content-type': 'text/event-stream' } });
     const remote = vi.fn().mockResolvedValue(reply);

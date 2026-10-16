@@ -30,7 +30,7 @@ function createStorageService(root, dialog, getWindow) {
   return {
     call,
     async handle(action, payload = {}) {
-      const allowed = ['bootstrap', 'list', 'load', 'save', 'create', 'open', 'rename', 'delete', 'export', 'history', 'historyDetail', 'restore', 'clearHistory', 'versions', 'version'];
+      const allowed = ['bootstrap', 'list', 'load', 'save', 'create', 'open', 'rename', 'delete', 'export', 'history', 'historyDetail', 'restore', 'clearHistory', 'versions', 'version', 'referenceCacheGet', 'referenceCachePut'];
       if (!allowed.includes(action)) throw new Error('未知存储操作');
       if (action === 'create' || action === 'export') {
         const picked = await dialog.showSaveDialog(getWindow(), { title: action === 'create' ? '新建工作区' : '保存工作区副本', defaultPath: `${payload.name ?? 'workspace'}.caudalflow`, filters: [{ name: 'CaudalFlow SQLite', extensions: ['caudalflow'] }] });

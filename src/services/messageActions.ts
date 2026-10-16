@@ -1,20 +1,9 @@
 import { nanoid } from 'nanoid';
 import { useChatStore } from '../stores/chatStore';
-import { useFlowStore } from '../stores/flowStore';
 import { streamChat } from './llm';
-import { getRootSystemPrompt, getBranchSystemPrompt, getMergeSystemPrompt } from '../utils/systemPrompts';
+import { conversationSystemPrompt } from './conversationContext';
 import type { ChatMessage } from '../types/chat';
 import { isDesktopStorage } from './storage/desktop';
-
-function systemPrompt(nodeId: string): string {
-  const node = useFlowStore.getState().nodes.find((item) => item.id === nodeId);
-  if (!node) return getRootSystemPrompt();
-  const parents = (node.data.parentNodeIds ?? (node.data.parentNodeId ? [node.data.parentNodeId] : [])) as string[];
-  const contexts = parents.map((id) => ({ topic: useFlowStore.getState().nodes.find((item) => item.id === id)?.data.topic ?? '', messages: useChatStore.getState().getMessages(id).map(({ role, content }) => ({ role, content })) }));
-  if (contexts.length > 1) return getMergeSystemPrompt(contexts, String(node.data.mergeAction ?? ''));
-  if (contexts.length) return getBranchSystemPrompt(contexts[0].topic, contexts[0].messages);
-  return getRootSystemPrompt();
-}
 
 // 只重新生成目标回复，保留旧版本和后续消息，流式内容按消息 ID 更新。
 export function reviseMessage(nodeId: string, messageId: string, prompt: string | undefined, signal: AbortSignal): void {
@@ -31,7 +20,7 @@ export function reviseMessage(nodeId: string, messageId: string, prompt: string 
     // 桌面版本由 SQLite 管理，运行时不再把所有旧正文嵌进当前消息。
     previousVersions: isDesktopStorage() ? undefined : original ? [...(original.previousVersions ?? []), { content: original.content, reasoning: original.reasoning, timestamp: original.timestamp }] : [] };
   const history = messages.slice(0, source.role === 'assistant' ? index : index + 1);
-  const context: ChatMessage[] = [{ id: 'system', role: 'system', content: systemPrompt(nodeId), timestamp: 0 }, ...history];
+  const context: ChatMessage[] = [{ id: 'system', role: 'system', content: conversationSystemPrompt(nodeId), timestamp: 0 }, ...history];
   if (prompt) context.push({ id: nanoid(), role: 'user', content: `请按以下要求重构这条回答：${prompt}\n\n原回答：\n${source.content}`, timestamp: Date.now() });
   if (original) store.addOrUpdateMessage(nodeId, target);
   else store.setConversationMessages(nodeId, [...messages.slice(0, index + 1), target, ...messages.slice(index + 1)]);

@@ -19,6 +19,8 @@ async function runSmokeTest(window, app, storage) {
   const timeout = setTimeout(() => app.exit(1), 60000);
   let requests = 0;
   let titleRequests = 0;
+  let summaryRequests = 0;
+  const chatRequests = [];
   const server = createServer(async (request, response) => {
     try {
       assert.equal(request.url, '/v1/chat/completions');
@@ -26,6 +28,12 @@ async function runSmokeTest(window, app, storage) {
       let body = '';
       for await (const chunk of request) body += chunk;
       const input = JSON.parse(body);
+      if (input.messages[0]?.content.startsWith('将以下学习对话整理')) {
+        summaryRequests++;
+        response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        response.end('data:{"choices":[{"delta":{"content":"引用摘要：SQLite 原段落的学习背景"},"finish_reason":"stop"}]}\n\ndata:[DONE]\n');
+        return;
+      }
       if (input.messages[0]?.content.includes('根据首次问题提炼')) {
         titleRequests++;
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -33,6 +41,7 @@ async function runSmokeTest(window, app, storage) {
         return;
       }
       const answer = ++requests === 1 ? '回复成功' : '回复成功·重答';
+      chatRequests.push(input);
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
       response.write('data:{"choices":[{"delta":{"reasoning_content":"桌面思考测试"}}]}\n\n');
       await delay(100);
@@ -139,6 +148,66 @@ async function runSmokeTest(window, app, storage) {
     assert(stored.data.conversations[nodeId].messages.at(-1).content.includes('https://old.example'));
     assert(await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"撤销内容操作\"]').disabled"));
     const history = await storage.call('history', { id: workspaceId }); assert(history.length > 0);
+    // 只在测试中截获写剪切板请求，不改动用户的真实剪切板；粘贴仍走真实界面处理。
+    await window.webContents.executeJavaScript(`(() => {
+      const original = window.fetch.bind(window);
+      window.fetch = (url, options) => {
+        if (url === '/api/clipboard') { window.__referenceClipboard = JSON.parse(options.body); return Promise.resolve(new Response('{"ok":true}',{headers:{'Content-Type':'application/json'}})); }
+        return original(url, options);
+      };
+      document.querySelector('button[aria-label="卡片菜单"]').click();
+    })()`);
+    await waitFor(window, "[...document.querySelectorAll('[role=menu] button')].some(button=>button.textContent==='复制引用')");
+    await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button=>button.textContent==='复制引用').click()");
+    await waitFor(window, "!!window.__referenceClipboard");
+    const copied = await window.webContents.executeJavaScript('window.__referenceClipboard');
+    assert(copied.html.includes('data-caudalflow-reference')); assert(copied.text.includes('引用摘要：SQLite'));
+    assert.equal(summaryRequests, 1);
+    await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"新建对话\"]').click()");
+    await waitFor(window, "document.querySelectorAll('.react-flow textarea').length===2");
+    await window.webContents.executeJavaScript(`(async () => {
+      const input = [...document.querySelectorAll('.react-flow textarea')].at(-1);
+      const data = new DataTransfer(); data.setData('text/html', window.__referenceClipboard.html); data.setData('text/plain',window.__referenceClipboard.text);
+      input.dispatchEvent(new ClipboardEvent('paste', {clipboardData:data,bubbles:true,cancelable:true}));
+      await new Promise(resolve=>setTimeout(resolve,0));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'继续解释引用中的知识');
+      input.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
+      input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    })()`);
+    await waitFor(window, "!!document.querySelector('[data-reference]') && document.querySelectorAll('[data-message-id]').length>=5");
+    await waitFor(window, "[...document.querySelectorAll('.react-flow textarea')].every(input=>!input.value) && !document.querySelector('[aria-label=\"待发送引用\"]')");
+    await delay(400); await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    stored = await storage.call('load', { id: workspaceId });
+    const childId = stored.data.nodes.find((node) => node.id !== nodeId).id;
+    const childMessages = stored.data.conversations[childId].messages;
+    assert.equal(childMessages[0].kind, 'reference'); assert.equal(childMessages[1].role, 'user'); assert.equal(childMessages[2].role, 'assistant');
+    assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
+    assert(!chatRequests.at(-1).messages.some((message) => message.content.includes('Branched from a conversation')));
+    const referenceScreenshot = path.join(app.getPath('userData'), 'reference-smoke.png');
+    await fs.writeFile(referenceScreenshot, (await window.webContents.capturePage()).toPNG());
+    loaded = once(window.webContents, 'did-finish-load'); window.webContents.reload(); await loaded;
+    await waitFor(window, "!!window.caudalflowFlush && !!document.querySelector('[data-reference]')");
+    stored = await storage.call('load', { id: workspaceId });
+    assert.equal(stored.data.conversations[childId].messages[0].reference.quote, childMessages[0].reference.quote);
+    // 重载后从同篇回答的另一选区创建分支，复用磁盘摘要缓存。
+    await window.webContents.executeJavaScript(`(() => {
+      const source = [...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(element=>element.textContent==='原段落');
+      const range = document.createRange(); range.selectNodeContents(source);
+      const selected = window.getSelection(); selected.removeAllRanges(); selected.addRange(range);
+      source.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:700,clientY:400}));
+    })()`);
+    await waitFor(window, "[...document.querySelectorAll('[role=menu] button')].some(button=>button.textContent==='从选区分支追问')");
+    await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button=>button.textContent==='从选区分支追问').click()");
+    await waitFor(window, "document.querySelectorAll('[data-reference]').length===2");
+    await delay(400); await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    stored = await storage.call('load', { id: workspaceId });
+    const branch = stored.data.nodes.find((node) => node.data.parentNodeId === nodeId);
+    assert(branch);
+    const branchMessages = stored.data.conversations[branch.id].messages;
+    assert.equal(branchMessages[0].kind, 'reference'); assert.equal(branchMessages[0].reference.quote, '原段落');
+    assert.equal(branchMessages[0].reference.sources[0].documentId, answerId);
+    assert.equal(summaryRequests, 1);
+    assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
     const { DatabaseSync } = require('node:sqlite'); const copy = new DatabaseSync(destination);
@@ -146,7 +215,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'portable workspace excludes personal history'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'portable workspace excludes personal history'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

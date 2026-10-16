@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { ChatMessage } from '../../types/chat';
+import type { ChatMessage, ReferenceSelection } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
 
-export type MenuTarget = { x: number; y: number } & ({ kind: 'selection'; text: string } | { kind: 'message'; message: ChatMessage });
+export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[] } & ({ kind: 'selection'; text: string } | { kind: 'message'; message: ChatMessage });
 
 interface Props {
   target: MenuTarget;
@@ -14,15 +14,17 @@ interface Props {
   revise: (id: string, prompt?: string) => void;
   remove: (id: string) => void;
   versions?: (id: string) => void;
+  copyReference?: () => Promise<void>;
 }
 
 // 菜单使用选区快照；有选区时不暴露消息级删除或重答，避免跨气泡选择误操作。
-export function MessageContextMenu({ target, busy, close, explore, revise, remove, versions }: Props) {
+export function MessageContextMenu({ target, busy, close, explore, revise, remove, versions, copyReference }: Props) {
   const { t } = useTranslation();
   const [dialog, setDialog] = useState<'prompt' | 'delete' | null>(null);
   const [prompt, setPrompt] = useState(t('menu.defaultPrompt'));
   const [error, setError] = useState('');
   const [submenu, setSubmenu] = useState(false);
+  const [copyingReference, setCopyingReference] = useState(false);
   const presets = useSettingsStore((state) => state.promptPresets);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -69,6 +71,10 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
         <div role="menu" aria-label={t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}>
           <div className="px-3 py-2 text-xs text-text-muted">{t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}</div>
           <button role="menuitem" className={buttonClass} onClick={copy}>{t(target.kind === 'selection' ? 'menu.copySelection' : 'menu.copyMessage')}</button>
+          {copyReference && <button role="menuitem" disabled={busy || copyingReference} className={buttonClass} onClick={async () => {
+            setCopyingReference(true); setError('');
+            try { await copyReference(); close(); } catch (failure) { setError(String(failure)); } finally { setCopyingReference(false); }
+          }}>{copyingReference ? '正在整理引用…' : '复制引用'}</button>}
           {target.kind === 'selection' ? <>
             <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(target.text, ''))}>{t('menu.branch')}</button>
             <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(target.text, t('menu.summaryPrompt')))}>{t('menu.summarize')}</button>

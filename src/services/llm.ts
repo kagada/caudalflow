@@ -3,6 +3,7 @@ import type { StreamCallbacks } from './providers/types';
 import { getProvider } from './providers/registry';
 import { useSettingsStore } from '../stores/settingsStore';
 import { trackGeneration } from './streamLifecycle';
+import { modelMessages } from './references';
 
 export function streamChat(
   messages: ChatMessage[],
@@ -19,7 +20,7 @@ export function streamChat(
 
   const tracked = trackGeneration(signal);
   // 请求取消后不再回调 store，避免历史恢复或撤销后被晚到响应覆盖。
-  provider.streamChat(messages, config, {
+  provider.streamChat(modelMessages(messages), config, {
     onToken: (token) => { if (!tracked.controller.signal.aborted) callbacks.onToken(token); },
     onReasoning: (token) => { if (!tracked.controller.signal.aborted) callbacks.onReasoning?.(token); },
     onDone: () => { tracked.release(); if (!tracked.controller.signal.aborted) callbacks.onDone(); },

@@ -6,6 +6,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Check, Copy } from 'lucide-react';
 import type { ChatMessage as ChatMessageType } from '../../types/chat';
 import { useTranslation } from 'react-i18next';
+import { ReferenceBubble } from './ReferenceBubble';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -108,6 +109,7 @@ export const ChatMessage = memo(function ChatMessage({
   const withHighlights = (children: ReactNode) =>
     isUser ? children : highlightExplored(children, exploredTexts);
 
+  if (message.kind === 'reference') return <ReferenceBubble message={message} />;
   if (isSystem) {
     return (
       <div className="px-3 py-1.5">
@@ -142,6 +144,7 @@ export const ChatMessage = memo(function ChatMessage({
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
+        <div data-message-content>
         {isUser ? (
             <div className="flex flex-col gap-2">
               {message?.images?.map((img, i) => {
@@ -197,8 +200,8 @@ export const ChatMessage = memo(function ChatMessage({
                   </code>
                 );
               },
-              p({ children }) {
-                return <p className="mb-4 last:mb-0">{withHighlights(children)}</p>;
+              p({ children, node }) {
+                return <p data-source-start={node?.position?.start.offset} data-source-end={node?.position?.end.offset} className="mb-4 last:mb-0">{withHighlights(children)}</p>;
               },
               h1({ children }) { return <h1 className="text-[25px] leading-9 font-bold mt-6 mb-4">{withHighlights(children)}</h1>; },
               h4({ children }) { return <h4 className="text-[17px] leading-7 font-semibold mt-4 mb-2">{withHighlights(children)}</h4>; },
@@ -279,6 +282,7 @@ export const ChatMessage = memo(function ChatMessage({
           {!!message.previousVersions?.length && <details className="mt-4 border-t border-border pt-3 text-sm text-text-secondary"><summary className="cursor-pointer">{t('menu.previousVersions')} ({message.previousVersions.length})</summary>{message.previousVersions.map((version, index) => <div key={index} className="mt-3 whitespace-pre-wrap rounded-lg bg-surface-800 p-3">{version.content}</div>)}</details>}
           </>
         )}
+        </div>
       </div>
 
       {lightbox && (

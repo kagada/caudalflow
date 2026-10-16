@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, net, protocol, shell, session, dialog } = require('electron');
+const { app, BrowserWindow, Menu, net, protocol, shell, session, dialog, clipboard } = require('electron');
 const path = require('node:path');
 const { APP_ORIGIN, createProtocolHandler } = require('./protocol.cjs');
 
@@ -78,7 +78,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(() => {
     storageService = require('./storage/service.cjs').createStorageService(app.getPath('userData'), dialog, () => mainWindow);
-    protocol.handle('app', createProtocolHandler(path.join(app.getAppPath(), 'dist'), net.fetch, storageService));
+    protocol.handle('app', createProtocolHandler(path.join(app.getAppPath(), 'dist'), net.fetch, storageService, clipboard));
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => callback(permission === 'clipboard-sanitized-write'));
     session.defaultSession.on('will-download', (_event, item) => item.setSaveDialogOptions({ title: '导出学习工作区' }));
     Menu.setApplicationMenu(Menu.buildFromTemplate([
