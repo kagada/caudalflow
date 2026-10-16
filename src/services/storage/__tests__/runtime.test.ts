@@ -78,6 +78,26 @@ describe('desktop command and persistence coordination', () => {
     expect(flow.useFlowStore.getState().nodes.find((node) => node.id === id)?.data.topic).toBe('AI 短标题');
   });
 
+  it('merges asynchronous title and first reply into the initial command and redoes saved results', async () => {
+    const id = flow.useFlowStore.getState().addChatNode({ x: 10, y: 10 }, { topic: '新建对话' });
+    const store = chat.useChatStore.getState(); store.initConversation(id); await runtime.flushDesktopStorage();
+    store.addMessage(id, 'user', '首次提问');
+    flow.useFlowStore.getState().updateNodeData(id, { topic: '问题节选', titleSource: 'temporary' });
+    runtime.recordFirstQuestion(id);
+    store.addMessage(id, 'assistant', ''); store.setStreaming(id, true); await runtime.flushDesktopStorage();
+    flow.useFlowStore.getState().updateNodeData(id, { topic: 'AI 短标题', titleSource: 'generated' }); await runtime.flushDesktopStorage();
+    store.appendToLastMessage(id, '首次回复'); store.setStreaming(id, false); await runtime.flushDesktopStorage();
+    const merged = fake.request.mock.calls.filter(([action, payload]) => action === 'save' && payload.mergeInitializationId === id);
+    expect(merged).toHaveLength(2);
+    expect(merged.every(([, payload]) => payload.label === '创建会话并提问')).toBe(true);
+    await runtime.replayDesktopCommand('undo');
+    expect(flow.useFlowStore.getState().nodes.map((node) => node.id)).toEqual(['c1']);
+    expect(runtime.useStorageStatus.getState().canUndo).toBe(false);
+    await runtime.replayDesktopCommand('redo');
+    expect(flow.useFlowStore.getState().nodes.find((node) => node.id === id)?.data.topic).toBe('AI 短标题');
+    expect(chat.useChatStore.getState().getMessages(id).at(-1)?.content).toBe('首次回复');
+  });
+
   it('restores deleted content at its most recent layout position', async () => {
     flow.useFlowStore.getState().onNodesChange([{ type: 'position', id: 'c1', position: { x: 900, y: 800 } }]); await runtime.flushDesktopStorage();
     flow.useFlowStore.getState().removeNode('c1'); chat.useChatStore.getState().removeConversation('c1'); await runtime.flushDesktopStorage();

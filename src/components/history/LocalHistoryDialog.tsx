@@ -11,6 +11,7 @@ const changeNames = { added: '新增', removed: '删除', modified: '修改' };
 export function LocalHistoryDialog({ workspaceId, workspaceName, close }: { workspaceId: string; workspaceName: string; close: () => void }) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [entryId, setEntryId] = useState('');
+  const [refreshId, setRefreshId] = useState(0);
   const [itemId, setItemId] = useState('');
   const [loaded, setLoaded] = useState<{ id: string; data?: HistoryDetail; error?: string } | null>(null);
   const [error, setError] = useState('');
@@ -23,6 +24,7 @@ export function LocalHistoryDialog({ workspaceId, workspaceName, close }: { work
     try {
       const next = await listDesktopHistory();
       setEntries(next); setEntryId((old) => next.some((entry) => entry.id === old) ? old : next[0]?.id ?? ''); setError('');
+      setRefreshId((value) => value + 1);
     } catch (failure) { setError(String(failure)); }
   }, []);
   useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
@@ -31,7 +33,8 @@ export function LocalHistoryDialog({ workspaceId, workspaceName, close }: { work
     let active = true;
     void readDesktopHistory(entryId, workspaceId).then((data) => { if (active) setLoaded({ id: entryId, data }); }).catch((failure) => { if (active) setLoaded({ id: entryId, error: String(failure) }); });
     return () => { active = false; };
-  }, [entryId, workspaceId]);
+    // 初始化记录会原地合并，刷新列表后即使 ID 相同也要重新读取正文。
+  }, [entryId, workspaceId, refreshId]);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) { event.stopPropagation(); close(); } };
     document.addEventListener('keydown', escape);

@@ -7,6 +7,55 @@ function state(content = '回答'): WorkspaceData {
 }
 
 describe('content command history', () => {
+  it.each(['title-first', 'reply-first'])('groups initialization in either completion order: %s', (order) => {
+    const history = createContentHistory();
+    const empty: WorkspaceData = { nodes: [], edges: [], conversations: {} };
+    const created = state(); created.conversations.c1.messages = []; created.nodes[0].data.titleSource = 'pending';
+    history.record(empty, created, '创建会话或分支');
+    let current = structuredClone(created); current.nodes[0].data.titleSource = 'temporary'; current.nodes[0].data.topic = '问题节选';
+    current.conversations.c1.messages.push({ id: 'q1', role: 'user', content: '首次问题', timestamp: 1 });
+    history.record(created, current, '首次提问', 'c1');
+    for (const step of order === 'title-first' ? ['title', 'reply'] : ['reply', 'title']) {
+      const next = structuredClone(current);
+      if (step === 'title') { next.nodes[0].data.topic = 'AI 标题'; next.nodes[0].data.titleSource = 'generated'; }
+      else next.conversations.c1.messages.push({ id: 'a1', role: 'assistant', content: '首次回答', replyToId: 'q1', timestamp: 2 });
+      // 拖动不打断初始化，撤销合并步骤时仍保留当前布局。
+      next.nodes[0].position.x = 900;
+      history.record(current, next, step === 'title' ? '自动生成会话标题' : '回复完成');
+      expect(history.mergedInitializationId).toBe('c1');
+      current = next;
+    }
+    const undone = history.undo(current)!.data;
+    expect(undone.nodes).toHaveLength(0); expect(history.canUndo).toBe(false);
+    const redone = history.redo(undone)!.data;
+    expect(redone.nodes[0].data.topic).toBe('AI 标题');
+    expect(redone.conversations.c1.messages.map((message) => message.content)).toEqual(['首次问题', '首次回答']);
+  });
+
+  it('permanently stops initialization merging after a manual operation, even if that operation is undone', () => {
+    const history = createContentHistory(); const created = state(); created.conversations.c1.messages = [];
+    const asked = structuredClone(created); asked.nodes[0].data.titleSource = 'temporary';
+    asked.conversations.c1.messages.push({ id: 'q1', role: 'user', content: '首次问题', timestamp: 1 });
+    history.record(created, asked, '首次提问', 'c1');
+    const marked = structuredClone(asked); marked.nodes[0].data.done = true;
+    history.record(asked, marked, '修改搞定状态');
+    const undone = history.undo(marked)!.data;
+    const titled = structuredClone(undone); titled.nodes[0].data.titleSource = 'generated'; titled.nodes[0].data.topic = 'AI 标题';
+    history.record(undone, titled, '自动生成会话标题');
+    expect(history.mergedInitializationId).toBeUndefined();
+    expect(history.undo(titled)!.data.conversations.c1.messages).toHaveLength(1);
+  });
+
+  it('does not merge regenerated replies or edits of the original question into initialization', () => {
+    const history = createContentHistory(); const created = state(); created.conversations.c1.messages = [];
+    const asked = structuredClone(created); asked.conversations.c1.messages.push({ id: 'q1', role: 'user', content: '首次问题', timestamp: 1 });
+    history.record(created, asked, '首次提问', 'c1');
+    const answered = structuredClone(asked); answered.conversations.c1.messages.push({ id: 'a1', role: 'assistant', content: '首次回答', timestamp: 2 });
+    history.record(asked, answered, '回复完成'); expect(history.mergedInitializationId).toBe('c1');
+    const regenerated = structuredClone(answered); regenerated.conversations.c1.messages[1].content = '重新生成';
+    history.record(answered, regenerated, '修改文档或切换版本'); expect(history.mergedInitializationId).toBeUndefined();
+    expect(history.undo(regenerated)!.data.conversations.c1.messages[1].content).toBe('首次回答');
+  });
   it('merges only an adjacent empty creation with its first question and replays the saved question', () => {
     const history = createContentHistory();
     const empty: WorkspaceData = { nodes: [], edges: [], conversations: {} };

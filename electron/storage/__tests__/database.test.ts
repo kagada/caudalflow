@@ -22,6 +22,43 @@ describe('SQLite workspace and independent local history', () => {
   });
   afterEach(() => { workspace?.close(); rmSync(root, { recursive: true, force: true }); });
 
+  it.each(['title-first', 'reply-first'])('persists one stable initialization record: %s', (order) => {
+    const created = example(); created.conversations.c1.messages = []; created.nodes[0].data.titleSource = 'pending';
+    workspace.save(created, { label: '创建会话或分支' });
+    const id = workspace.listHistory()[0].id;
+    let current = structuredClone(created); current.nodes[0].data.titleSource = 'temporary';
+    current.conversations.c1.messages.push({ id: 'q1', role: 'user', content: '问题', timestamp: 1 });
+    workspace.save(current, { label: '创建会话并提问', mergeCreationId: 'c1' });
+    for (const step of order === 'title-first' ? ['title', 'reply'] : ['reply', 'title']) {
+      const next = structuredClone(current);
+      if (step === 'title') { next.nodes[0].data.topic = 'AI 短标题'; next.nodes[0].data.titleSource = 'generated'; }
+      else next.conversations.c1.messages.push({ id: 'a1', role: 'assistant', content: '首次回复', replyToId: 'q1', timestamp: 2 });
+      next.nodes[0].position.x = 900;
+      workspace.save(next, { label: '创建会话并提问', mergeInitializationId: 'c1' });
+      current = next;
+    }
+    expect(workspace.listHistory()).toHaveLength(1); expect(workspace.listHistory()[0].id).toBe(id);
+    const detail = workspace.readHistory(id);
+    expect(detail.before.nodes).toHaveLength(0);
+    expect(detail.after.nodes[0].data.topic).toBe('AI 短标题');
+    expect(detail.after.conversations.c1.messages.map((message: { content: string }) => message.content)).toEqual(['问题', '首次回复']);
+    workspace.restoreHistory(id, 'before'); expect(workspace.load().data.nodes).toHaveLength(0);
+  });
+
+  it('refuses to merge a late initialization result across another operation or edited question', () => {
+    const asked = example(); asked.nodes[0].data.titleSource = 'temporary'; asked.conversations.c1.messages = [asked.conversations.c1.messages[0]];
+    workspace.save(asked, { label: '创建会话并提问' });
+    const marked = structuredClone(asked); marked.nodes[0].data.done = false;
+    workspace.save(marked, { label: '修改搞定状态' });
+    const titled = structuredClone(marked); titled.nodes[0].data.topic = 'AI 标题'; titled.nodes[0].data.titleSource = 'generated';
+    workspace.save(titled, { label: '自动生成会话标题', mergeInitializationId: 'c1' });
+    expect(workspace.listHistory()).toHaveLength(3);
+    const changed = structuredClone(titled); changed.conversations.c1.messages[0].content = '问题也变了';
+    changed.conversations.c1.messages.push({ id: 'a1', role: 'assistant', content: '首次回复', timestamp: 3 });
+    workspace.save(changed, { label: '回复完成', mergeInitializationId: 'c1' });
+    expect(workspace.listHistory()).toHaveLength(4);
+  });
+
   it('merges an adjacent empty creation and first question without including a later reply', () => {
     const created = example(); created.conversations.c1.messages = [];
     workspace.save(created, { label: '创建会话或分支' });

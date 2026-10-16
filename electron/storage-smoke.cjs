@@ -68,11 +68,13 @@ async function runSmokeTest(window, app, storage) {
     assert.equal(stored.data.nodes[0].data.topic, 'SQLite 聊天自检标题');
     assert.equal(titleRequests, 1);
     const initialHistory = await storage.call('history', { id: workspaceId });
+    assert.equal(initialHistory.length, 1);
     const creation = initialHistory.find((entry) => entry.label === '创建会话并提问');
     assert(creation);
     const creationDetail = await storage.call('historyDetail', { id: workspaceId, historyId: creation.id });
     assert.equal(creationDetail.before.nodes.length, 0);
-    assert.equal(creationDetail.after.conversations[nodeId].messages.length, 1);
+    assert.equal(creationDetail.after.conversations[nodeId].messages.length, 2);
+    assert.equal(creationDetail.after.nodes[0].data.topic, 'SQLite 聊天自检标题');
     assert.equal(stored.data.conversations[nodeId].messages.at(-1).content, 'SQLite 流式回复成功');
     assert(stored.data.conversations[nodeId].messages.at(-1).versionId);
     assert(await window.webContents.executeJavaScript("document.querySelector('details').textContent.includes('桌面思考测试')"));

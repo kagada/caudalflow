@@ -126,10 +126,12 @@ function capture(firstQuestionId?: string) {
   let label = changed ? describeContentChange(before, complete) : '保存布局或草稿';
   if (changed && firstQuestionId) label = before.nodes.some((node) => node.id === firstQuestionId) ? '首次提问' : '创建会话并提问';
   let mergeCreationId: string | undefined;
+  let mergeInitializationId: string | undefined;
   if (changed) {
     history().record(before, complete, label, firstQuestionId);
     mergeCreationId = history().mergedCreationId;
-    if (mergeCreationId) label = '创建会话并提问';
+    mergeInitializationId = history().mergedInitializationId;
+    if (mergeCreationId || mergeInitializationId) label = history().lastLabel!;
     updateButtons();
   }
   settled = copyWorkspace(complete);
@@ -137,7 +139,7 @@ function capture(firstQuestionId?: string) {
   void enqueue(async () => {
     const error = useStorageStatus.getState().error;
     if (error) throw new Error(error);
-    const response = await storage.request<SavedWorkspace>('save', { id, data: actual, expectedRevision: revisions.get(id), label, mergeCreationId, history: changed, historyBefore: changed ? before : undefined, historyAfter: changed ? complete : undefined });
+    const response = await storage.request<SavedWorkspace>('save', { id, data: actual, expectedRevision: revisions.get(id), label, mergeCreationId, mergeInitializationId, history: changed, historyBefore: changed ? before : undefined, historyAfter: changed ? complete : undefined });
     revisions.set(id, response.revision);
     acceptSavedVersions(id, actual, response);
   }).catch(report);
@@ -349,7 +351,12 @@ export async function readDesktopHistory(historyId: string, workspaceId: string)
 }
 
 export async function clearDesktopHistory() {
-  return perform(async () => { if (activeId) await storage.request('clearHistory', { id: activeId }); });
+  return perform(async () => {
+    if (!activeId) return;
+    await storage.request('clearHistory', { id: activeId });
+    // 已清掉的初始化记录不能被后续回复重新扩展，现有撤销步骤仍保留。
+    history().endInitialization();
+  });
 }
 
 export async function restoreDesktopHistory(historyId: string, side: 'before' | 'after' = 'after', conversationId?: string, selection?: HistorySelection) {

@@ -49,6 +49,26 @@ function contentOf(data) {
   };
 }
 
+// 数据库独立验证初始化的后续变化，不能因渲染进程请求合并就跨过其他修改。
+function isInitializationStep(before, after, id) {
+  const oldNode = before.nodes.find((node) => node.id === id);
+  const nextNode = after.nodes.find((node) => node.id === id);
+  if (!oldNode || !nextNode) return false;
+  const oldMessages = before.conversations[id]?.messages ?? [];
+  const nextMessages = after.conversations[id]?.messages ?? [];
+  const questions = oldMessages.filter((message) => message.role === 'user');
+  if (questions.length !== 1 || nextMessages.filter((message) => message.role === 'user').length !== 1) return false;
+  const title = oldNode.data.titleSource === 'temporary' && nextNode.data.titleSource === 'generated';
+  const oldAnswers = oldMessages.filter((message) => message.role === 'assistant');
+  const nextAnswers = nextMessages.filter((message) => message.role === 'assistant');
+  const reply = oldAnswers.length === 0 && nextAnswers.length === 1 && (!nextAnswers[0].replyToId || nextAnswers[0].replyToId === questions[0].id);
+  if (!title && !reply) return false;
+  const normalized = JSON.parse(JSON.stringify(after));
+  if (title) normalized.nodes.find((node) => node.id === id).data = { ...nextNode.data, topic: oldNode.data.topic, titleSource: oldNode.data.titleSource };
+  if (reply) normalized.conversations[id].messages = nextMessages.filter((message) => message.id !== nextAnswers[0].id);
+  return JSON.stringify(canonical(contentOf(before))) === JSON.stringify(canonical(contentOf(normalized)));
+}
+
 class WorkspaceDatabase {
   constructor(filename, historyDirectory, options = {}) {
     this.filename = filename;
@@ -152,7 +172,7 @@ class WorkspaceDatabase {
   }
 
   // expectedRevision 防止另一窗口或旧请求覆盖更新后的工作区。
-  save(data, { expectedRevision, label = '修改内容', history = true, historyBefore, historyAfter, mergeCreationId } = {}) {
+  save(data, { expectedRevision, label = '修改内容', history = true, historyBefore, historyAfter, mergeCreationId, mergeInitializationId } = {}) {
     validateData(data);
     if (expectedRevision !== undefined && expectedRevision !== this.revision) throw new Error('工作区已被其他操作更新，请重新打开后再修改');
     const previous = this.load().data;
@@ -208,8 +228,15 @@ class WorkspaceDatabase {
         let beforeJson = JSON.stringify(historyBefore ?? previous);
         const afterJson = JSON.stringify(historyAfter ?? data);
         // 合并必须重新核对数据库里最后一条记录，不能跨越其他操作或改写旧回答。
-        const last = mergeCreationId && this.db.prepare('SELECT * FROM personal.history ORDER BY created_at DESC,rowid DESC LIMIT 1').get();
-        if (last?.label === '创建会话或分支') {
+        let mergedHistoryId;
+        const last = (mergeCreationId || mergeInitializationId) && this.db.prepare('SELECT * FROM personal.history ORDER BY created_at DESC,rowid DESC LIMIT 1').get();
+        if (mergeInitializationId && last && ['创建会话并提问', '首次提问'].includes(last.label) &&
+          JSON.stringify(canonical(contentOf(JSON.parse(last.after_json)))) === before &&
+          isInitializationStep(historyBefore ?? previous, historyAfter ?? data, mergeInitializationId)) {
+          beforeJson = last.before_json;
+          mergedHistoryId = last.id;
+          label = last.label;
+        } else if (mergeCreationId && last?.label === '创建会话或分支') {
           const start = JSON.parse(last.before_json);
           const created = JSON.parse(last.after_json);
           const currentBefore = historyBefore ?? previous;
@@ -223,10 +250,12 @@ class WorkspaceDatabase {
             key(created) === key(currentBefore) && key(without(created)) === key(start) && key(without(currentBefore)) === key(without(currentAfter)) &&
             JSON.stringify(canonical(contentOf(currentBefore).edges)) === JSON.stringify(canonical(contentOf(currentAfter).edges))) {
             beforeJson = last.before_json;
-            this.db.prepare('DELETE FROM personal.history WHERE id=?').run(last.id);
+            mergedHistoryId = last.id;
           }
         }
-        this.db.prepare('INSERT INTO personal.history VALUES (?,?,?,?,?,?)').run(randomUUID(), Date.now(), label, beforeJson, afterJson, Buffer.byteLength(beforeJson) + Buffer.byteLength(afterJson));
+        const bytes = Buffer.byteLength(beforeJson) + Buffer.byteLength(afterJson);
+        if (mergedHistoryId) this.db.prepare('UPDATE personal.history SET created_at=?,label=?,before_json=?,after_json=?,bytes=? WHERE id=?').run(Date.now(), label, beforeJson, afterJson, bytes, mergedHistoryId);
+        else this.db.prepare('INSERT INTO personal.history VALUES (?,?,?,?,?,?)').run(randomUUID(), Date.now(), label, beforeJson, afterJson, bytes);
         this.pruneHistory();
       }
       // 附件只有在所有功能版本都不再使用时才清理，个人历史自带恢复所需的图片数据。

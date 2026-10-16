@@ -27,6 +27,14 @@ async function render() { await act(async () => root.render(<LocalHistoryDialog 
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent === text)!;
 
 describe('three-part local history dialog', () => {
+  it('refreshes the selected detail when initialization extends the same history ID', async () => {
+    await render();
+    const updated = detail('h1'); updated.after.conversations.c1.messages[1].content = '初始化完成后的回复';
+    fake.read.mockResolvedValue(updated);
+    await act(async () => button('刷新记录').click());
+    expect(document.querySelector('[aria-label="原文差异"]')?.textContent).toContain('初始化完成后的回复');
+    expect(fake.read.mock.calls.filter(([id]) => id === 'h1')).toHaveLength(2);
+  });
   it('lists an operation once and shows affected question/reply with exact link addresses', async () => {
     await render();
     expect([...document.querySelectorAll('[aria-label="修改记录"] button')]).toHaveLength(2);
