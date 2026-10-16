@@ -40,6 +40,8 @@
   --border-color: #262626;
   --border-hover: #404040;
   --status-done: #34d399;
+  --reference-highlight-bg: #373365;
+  --reference-highlight-line: #a5b4fc;
 }
 
 /* Light theme */
@@ -62,6 +64,8 @@
   --border-color: #e5e7eb;
   --border-hover: #d1d5db;
   --status-done: #047857;
+  --reference-highlight-bg: #e0e7ff;
+  --reference-highlight-line: #6366f1;
 }
 
 html, body, #root {
@@ -149,4 +153,16 @@ html, body, #root {
 
 ::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-muted);
+}
+
+/* 引用字色与底色一起随主题切换，链接等彩色文字也要保持可读对比度。 */
+.reference-highlight {
+  color: var(--text-primary);
+  background-color: var(--reference-highlight-bg);
+  border-radius: 2px;
+  text-decoration: underline;
+  text-decoration-color: var(--reference-highlight-line);
+  text-underline-offset: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }

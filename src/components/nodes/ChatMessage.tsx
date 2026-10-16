@@ -1,69 +1,25 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Check, Copy } from 'lucide-react';
-import type { ChatMessage as ChatMessageType } from '../../types/chat';
+import type { ChatMessage as ChatMessageType, ReferenceSource } from '../../types/chat';
 import { useTranslation } from 'react-i18next';
 import { ReferenceBubble } from './ReferenceBubble';
+import { referenceRanges, highlightSegments, rehypeReferenceHighlights } from '../../utils/referenceHighlights';
 
 interface ChatMessageProps {
   message: ChatMessageType;
   exploredTexts: string[];
+  referenceSources?: ReferenceSource[];
   isStreaming?: boolean;
-}
-
-function highlightExplored(children: ReactNode, texts: string[]): ReactNode {
-  if (texts.length === 0) return children;
-
-  const process = (node: ReactNode): ReactNode => {
-    if (typeof node === 'string') {
-      return splitAndHighlight(node, texts);
-    }
-    if (Array.isArray(node)) {
-      return node.map((child, i) => <span key={i}>{process(child)}</span>);
-    }
-    if (node && typeof node === 'object' && 'props' in node) {
-      const { children: c, ...rest } = node.props as { children?: ReactNode; [key: string]: unknown };
-      if (c !== undefined) {
-        return { ...node, props: { ...rest, children: process(c) } };
-      }
-    }
-    return node;
-  };
-
-  return process(children);
-}
-
-function splitAndHighlight(text: string, texts: string[]): ReactNode {
-  // Sort by length descending so longer matches take priority
-  const sorted = [...texts].sort((a, b) => b.length - a.length);
-  const escaped = sorted.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
-
-  const parts = text.split(pattern);
-  if (parts.length === 1) return text;
-
-  return parts.map((part, i) => {
-    const isMatch = sorted.some((t) => t.toLowerCase() === part.toLowerCase());
-    if (isMatch) {
-      return (
-        <mark
-          key={i}
-          className="bg-yellow-400/25 text-yellow-300 rounded-sm px-0.5 decoration-yellow-400/50 underline underline-offset-2"
-        >
-          {part}
-        </mark>
-      );
-    }
-    return part;
-  });
 }
 
 export const ChatMessage = memo(function ChatMessage({
   message,
   exploredTexts,
+  referenceSources = [],
   isStreaming = false,
 }: ChatMessageProps) {
   const { t } = useTranslation();
@@ -106,8 +62,7 @@ export const ChatMessage = memo(function ChatMessage({
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const withHighlights = (children: ReactNode) =>
-    isUser ? children : highlightExplored(children, exploredTexts);
+  const ranges = referenceRanges(message, referenceSources);
 
   if (message.kind === 'reference') return <ReferenceBubble message={message} />;
   if (isSystem) {
@@ -159,7 +114,7 @@ export const ChatMessage = memo(function ChatMessage({
                   />
                 );
               })}
-              {message.content && <div>{message.content}</div>}
+              {message.content && <div>{highlightSegments(message.content, ranges).map((part, index) => part.highlighted ? <mark key={index} className="reference-highlight">{part.text}</mark> : part.text)}</div>}
             </div>
           ) : (
           <>
@@ -171,11 +126,12 @@ export const ChatMessage = memo(function ChatMessage({
           )}
           <Markdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[[rehypeReferenceHighlights, { ranges, legacyTexts: exploredTexts, content: message.content }]]}
             components={{
               code({ className, children, ...props }) {
                 const match = /language-(\w+)/.exec(className || '');
                 const code = String(children).replace(/\n$/, '');
-                if (match) {
+                if (match && !Array.isArray(children) && typeof children === 'string') {
                   return (
                     <SyntaxHighlighter
                       style={oneDark}
@@ -201,21 +157,21 @@ export const ChatMessage = memo(function ChatMessage({
                 );
               },
               p({ children, node }) {
-                return <p data-source-start={node?.position?.start.offset} data-source-end={node?.position?.end.offset} className="mb-4 last:mb-0">{withHighlights(children)}</p>;
+                return <p data-source-start={node?.position?.start.offset} data-source-end={node?.position?.end.offset} className="mb-4 last:mb-0">{children}</p>;
               },
-              h1({ children }) { return <h1 className="text-[25px] leading-9 font-bold mt-6 mb-4">{withHighlights(children)}</h1>; },
-              h4({ children }) { return <h4 className="text-[17px] leading-7 font-semibold mt-4 mb-2">{withHighlights(children)}</h4>; },
+              h1({ children }) { return <h1 className="text-[25px] leading-9 font-bold mt-6 mb-4">{children}</h1>; },
+              h4({ children }) { return <h4 className="text-[17px] leading-7 font-semibold mt-4 mb-2">{children}</h4>; },
               h2({ children }) {
                 return (
                   <h2 className="text-[21px] leading-8 font-semibold text-text-primary mt-6 mb-3">
-                    {withHighlights(children)}
+                    {children}
                   </h2>
                 );
               },
               h3({ children }) {
                 return (
                   <h3 className="text-[18px] leading-7 font-semibold text-text-primary mt-5 mb-2">
-                    {withHighlights(children)}
+                    {children}
                   </h3>
                 );
               },
@@ -228,7 +184,7 @@ export const ChatMessage = memo(function ChatMessage({
                 );
               },
               li({ children }) {
-                return <li className="text-[16px] leading-7">{withHighlights(children)}</li>;
+                return <li className="text-[16px] leading-7">{children}</li>;
               },
               blockquote({ children }) {
                 return (
@@ -249,19 +205,19 @@ export const ChatMessage = memo(function ChatMessage({
               th({ children }) {
                 return (
                   <th className="border border-border-hover px-3 py-2 bg-surface-800 text-left font-medium">
-                    {withHighlights(children)}
+                    {children}
                   </th>
                 );
               },
               td({ children }) {
                 return (
                   <td className="border border-border px-3 py-2">
-                    {withHighlights(children)}
+                    {children}
                   </td>
                 );
               },
               strong({ children }) {
-                return <strong className="font-semibold text-text-primary">{withHighlights(children)}</strong>;
+                return <strong className="font-semibold text-text-primary">{children}</strong>;
               },
               a({ href, children }) {
                 return (

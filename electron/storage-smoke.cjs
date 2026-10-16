@@ -248,6 +248,33 @@ async function runSmokeTest(window, app, storage) {
     assert.equal(branchMessages[0].reference.sources[0].documentId, answerId);
     assert.equal(summaryRequests, 2);
     assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
+    // 在实际 Chromium 中核对两种主题的高亮字色与底色，避免只验证类名。
+    const highlightScreenshots = [];
+    for (const theme of ['light', 'dark']) {
+      const colors = await window.webContents.executeJavaScript(`(async () => {
+        document.documentElement.dataset.theme = '${theme}';
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const mark = document.querySelector('[data-message-id="${answerId}"] mark.reference-highlight');
+        if (!mark) throw new Error('Missing source reference highlight');
+        mark.scrollIntoView({block:'center'});
+        const style = getComputedStyle(mark);
+        return {text: style.color, background: style.backgroundColor, primary: getComputedStyle(document.body).color};
+      })()`);
+      assert.equal(colors.text, colors.primary);
+      const luminance = (value) => {
+        const channels = value.match(/[\d.]+/g).slice(0, 3).map(Number).map((channel) => {
+          const x = channel / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const a = luminance(colors.text), b = luminance(colors.background);
+      assert((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 4.5, JSON.stringify(colors));
+      await delay(250);
+      const filename = path.join(app.getPath('userData'), `reference-highlight-${theme}.png`);
+      await fs.writeFile(filename, (await window.webContents.capturePage()).toPNG());
+      highlightScreenshots.push(filename);
+    }
+    await window.webContents.executeJavaScript("document.documentElement.dataset.theme='light'");
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
     const { DatabaseSync } = require('node:sqlite'); const copy = new DatabaseSync(destination);
@@ -255,7 +282,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

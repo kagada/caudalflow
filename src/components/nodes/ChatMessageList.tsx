@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { GitBranch } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useFlowStore } from '../../stores/flowStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAutoScroll } from '../../hooks/useAutoScroll';
 import { useTextSelection, selectionDocuments } from '../../hooks/useTextSelection';
@@ -33,11 +34,22 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
     () => showSystemPrompts ? allMessages : allMessages.filter((m) => m.role !== 'system' || m.kind === 'reference'),
     [allMessages, showSystemPrompts]
   );
-  const exploredTexts = useFlowStore(useShallow(
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  // 分支和粘贴引用共享来源记录，连线只为旧版数据提供文字匹配兼容。
+  const referencingMessages = useChatStore(useShallow((s) => Object.values(s.conversations).flatMap((conversation) =>
+    conversation.messages.filter((message) => message.kind === 'reference' && message.reference?.sources.some((source) =>
+      source.conversationId === nodeId && source.workspaceId === (workspaceId ?? ''))))));
+  const referenceSources = useMemo(() => referencingMessages.flatMap((message) => message.reference!.sources.filter((source) =>
+    source.conversationId === nodeId && source.workspaceId === (workspaceId ?? ''))), [referencingMessages, nodeId, workspaceId]);
+  const legacyLabels = useFlowStore(useShallow(
     (s) => s.edges
         .filter((e) => e.source === nodeId && e.data?.label)
-        .map((e) => e.data!.label)
+        .map((e) => e.target + '\0' + e.data!.label)
   ));
+  const exploredTexts = useMemo(() => legacyLabels.filter((entry) => {
+    const target = entry.slice(0, entry.indexOf('\0'));
+    return !useChatStore.getState().conversations[target]?.messages.some((message) => referencingMessages.includes(message));
+  }).map((entry) => entry.slice(entry.indexOf('\0') + 1)), [legacyLabels, referencingMessages]);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useAutoScroll(messages);
   const { selection, handleMouseUp, clearSelection } = useTextSelection(containerRef);
@@ -92,7 +104,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         ) : (
           <div className="py-3 space-y-2">
             {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} exploredTexts={exploredTexts} isStreaming={isStreaming && msg.id === (streamingMessageId ?? allMessages.at(-1)?.id)} />
+              <ChatMessage key={msg.id} message={msg} exploredTexts={exploredTexts} referenceSources={referenceSources} isStreaming={isStreaming && msg.id === (streamingMessageId ?? allMessages.at(-1)?.id)} />
             ))}
           </div>
         )}

@@ -8,6 +8,8 @@ import { useFlowStore } from '../../../stores/flowStore';
 import { useChatStore } from '../../../stores/chatStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { ChatMessageList } from '../ChatMessageList';
+import { useWorkspaceStore } from '../../../stores/workspaceStore';
+import type { ChatMessage as Message } from '../../../types/chat';
 
 const { markdownRender } = vi.hoisted(() => ({ markdownRender: vi.fn() }));
 vi.hoisted(() => {
@@ -79,5 +81,57 @@ describe('canvas selection keeps conversation content cached', () => {
     act(() => useChatStore.getState().appendToLastMessage('a', '\nnew response'));
     expect(markdownRender).toHaveBeenCalled();
     expect(container.textContent).toContain('new response');
+  });
+
+  it('marks the same raw range for branch and pasted references, including formatted and repeated text', () => {
+    const content = '重复\n\n重复 **重点** 和 [链接](https://example.com)\n\n末段';
+    const source = { workspaceId: '', conversationId: 'a', documentId: 'm', versionId: 'v1', title: 'A',
+      documentText: content, start: 4, length: content.length - 4 };
+    const ref: Message = { id: 'ref', role: 'system', kind: 'reference', timestamp: 0, content: '', reference: {
+      id: 'r', snapshotKey: 'k', summary: '摘要', quote: '重复 重点 和 链接\n末段', createdAt: 0, sources: [source],
+    } };
+    act(() => {
+      useWorkspaceStore.setState({ activeWorkspaceId: null });
+      useChatStore.setState({ conversations: {
+        a: { nodeId: 'a', isStreaming: false, messages: [{ id: 'm', versionId: 'v1', role: 'assistant', content, timestamp: 0 }] },
+        b: { nodeId: 'b', isStreaming: false, messages: [ref] },
+      } });
+    });
+    const marks = () => [...container.querySelectorAll('mark')].map((mark) => mark.textContent).join('');
+    const branchMarks = marks();
+    expect(branchMarks).toBe('重复 重点 和 链接末段');
+    expect(container.querySelector('p')?.querySelector('mark')).toBeNull();
+    expect(container.querySelector('a mark')?.textContent).toBe('链接');
+    expect(container.querySelector('strong mark')?.textContent).toBe('重点');
+    expect(container.querySelector('mark mark')).toBeNull();
+    act(() => useFlowStore.getState().setEdges([]));
+    expect(marks()).toBe(branchMarks);
+    markdownRender.mockClear();
+    act(() => useChatStore.setState((state) => ({ conversations: { ...state.conversations,
+      b: { ...state.conversations.b, messages: [...state.conversations.b.messages, { id: 'other', role: 'assistant', content: 'stream', timestamp: 0 }] },
+    } })));
+    expect(markdownRender).not.toHaveBeenCalled();
+    act(() => useChatStore.setState((state) => ({ conversations: { ...state.conversations,
+      a: { ...state.conversations.a, messages: [{ ...state.conversations.a.messages[0], versionId: 'v2' }] },
+    } })));
+    expect(container.querySelector('mark')).toBeNull();
+  });
+
+  it('does not mark other workspaces and removes marks when the reference is deleted', () => {
+    const source = { workspaceId: 'foreign', conversationId: 'a', documentId: 'm', title: 'A',
+      documentText: useChatStore.getState().conversations.a.messages[0].content, start: 0, length: 6 };
+    act(() => {
+      useFlowStore.getState().setEdges([]);
+      useChatStore.setState((state) => ({ conversations: { ...state.conversations,
+        b: { nodeId: 'b', isStreaming: false, messages: [{ id: 'r', role: 'system', kind: 'reference', content: '', timestamp: 0,
+          reference: { id: 'r', snapshotKey: 'k', summary: '', quote: 'branch', createdAt: 0, sources: [source] } }] },
+      } }));
+    });
+    expect(container.querySelector('mark')).toBeNull();
+    act(() => useWorkspaceStore.setState({ activeWorkspaceId: 'foreign' }));
+    expect(container.querySelector('mark')?.textContent).toBe('branch');
+    act(() => useChatStore.getState().setConversationMessages('b', []));
+    expect(container.querySelector('mark')).toBeNull();
+    useWorkspaceStore.setState({ activeWorkspaceId: null });
   });
 });

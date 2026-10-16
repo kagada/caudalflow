@@ -77,4 +77,19 @@ describe('ChatMessage copy button', () => {
     expect(container.textContent).toContain('这是正文');
     await act(async () => root.unmount());
   });
+
+  it('highlights quoted inline and fenced code without losing its contents', () => {
+    const root = createRoot(container);
+    const content = '代码 `hello`\n\n```js\nconst answer = 42;\n```';
+    const message: ChatMessageType = { id: 'code', role: 'assistant', content, timestamp: 0 };
+    const source = { workspaceId: '', conversationId: 'a', documentId: 'code', title: 'A', documentText: content, start: 0, length: content.length };
+    act(() => root.render(<ChatMessage message={message} exploredTexts={[]} referenceSources={[source]} />));
+    expect(container.querySelector('code mark')?.textContent).toBe('hello');
+    expect([...container.querySelectorAll('pre mark')].map((mark) => mark.textContent).join('')).toContain('const answer = 42;');
+    expect(container.textContent).not.toContain('[object Object]');
+    act(() => root.render(<ChatMessage message={{ ...message, role: 'user', content: '重复 重复' }} exploredTexts={[]} referenceSources={[{ ...source, documentText: '重复 重复', start: 3, length: 2 }]} />));
+    expect(container.querySelectorAll('mark')).toHaveLength(1);
+    expect(container.querySelector('mark')?.textContent).toBe('重复');
+    act(() => root.unmount());
+  });
 });
