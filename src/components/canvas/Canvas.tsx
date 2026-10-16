@@ -224,7 +224,7 @@ export function Canvas() {
           .filter((n): n is ChatNode => n !== null && n !== undefined);
 
         if (parentNodes.length < 2) { setReferenceStatus(''); return; }
-        const references = await Promise.all(parentIds.map((parentId) => createReference(parentId)));
+        const references = await Promise.all(parentIds.map((parentId) => createReference(parentId, undefined, { deferSummary: true })));
         if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('工作区已切换，请重新选择会话');
         if (parentIds.some((id) => !useFlowStore.getState().nodes.some((node) => node.id === id))) throw new Error('来源会话已被删除，请重新选择会话');
 

@@ -1,7 +1,18 @@
 import type { Root, RootContent, Element, Text } from 'hast';
-import type { ReferenceSource, ChatMessage } from '../types/chat';
+import { sourceOffsets } from './sourceOffsets';
+import type { ReferenceSource, ChatMessage, ContentReference } from '../types/chat';
 
 export interface HighlightRange { start: number; end: number }
+
+// 修正此前已存成整篇范围的单句引用；只在原文唯一匹配时恢复，重复文字不能随意猜位置。
+export function effectiveReferenceSources(reference: ContentReference): ReferenceSource[] {
+  if (reference.sources.length !== 1) return reference.sources;
+  const source = reference.sources[0], quote = reference.quote.trim();
+  if (source.start !== 0 || source.length !== source.documentText.length || !quote || quote === source.documentText.trim()) return reference.sources;
+  const start = source.documentText.indexOf(quote);
+  if (start < 0 || source.documentText.indexOf(quote, start + 1) >= 0) return reference.sources;
+  return [{ ...source, start, length: quote.length }];
+}
 
 // 只标记被引用的同一文档版本；重生成后的回答不能继承旧快照的标记。
 export function referenceRanges(message: ChatMessage, sources: ReferenceSource[]): HighlightRange[] {
@@ -31,11 +42,16 @@ export function rehypeReferenceHighlights(options: { ranges: HighlightRange[]; l
           const found = options.content.indexOf(node.value.replace(/\n$/, ''), parent.position.start.offset ?? 0);
           if (found >= 0 && found < (parent.position.end.offset ?? 0)) { start = found; end = found + node.value.length; }
         }
+        const raw = start !== undefined && end !== undefined ? options.content.slice(start, end) : undefined;
+        const offsets = raw !== undefined && raw !== node.value ? sourceOffsets(raw, node.value, start!) : undefined;
         let ranges: HighlightRange[] = [];
         if (start !== undefined && end !== undefined) {
-          ranges = options.ranges.filter((range) => range.start < end && range.end > start)
-            // 转义或实体与显示文字长度不同时，保守标记相交的文字节点，避免偏移到相邻文字。
-            .map((range) => end - start === node.value.length ? { start: range.start - start, end: range.end - start } : { start: 0, end: node.value.length });
+          ranges = options.ranges.filter((range) => range.start < end && range.end > start).flatMap((range) => {
+            if (!offsets) return [{ start: Math.max(0, range.start - start), end: Math.min(node.value.length, range.end - start) }];
+            const selected = offsets!.slice(0, -1).map((offset, index) => range.start < offsets![index + 1] && range.end > offset);
+            const first = selected.indexOf(true), last = selected.lastIndexOf(true);
+            return first < 0 ? [] : [{ start: first, end: last + 1 }];
+          });
         }
         for (const text of options.legacyTexts.filter(Boolean)) {
           let index = node.value.toLowerCase().indexOf(text.toLowerCase());
@@ -44,10 +60,22 @@ export function rehypeReferenceHighlights(options: { ranges: HighlightRange[]; l
             index = node.value.toLowerCase().indexOf(text.toLowerCase(), index + text.length);
           }
         }
-        if (!ranges.length) return [node];
-        return highlightSegments(node.value, ranges).map(({ text, highlighted }): Text | Element => highlighted ? {
-          type: 'element', tagName: 'mark', properties: { className: ['reference-highlight'] }, children: [{ type: 'text', value: text }],
-        } : { type: 'text', value: text });
+        if (parent.type === 'element' && parent.tagName === 'code' && start !== undefined) {
+          parent.properties.dataSourceStart = start;
+          parent.properties.dataSourceEnd = end;
+          if (offsets) parent.properties.dataSourceOffsets = JSON.stringify(offsets);
+          if (!ranges.length) return [node];
+        }
+        let cursor = 0;
+        return highlightSegments(node.value, ranges).map(({ text, highlighted }): Text | Element => {
+          const from = cursor; cursor += text.length;
+          if (start === undefined && !highlighted) return { type: 'text', value: text };
+          return { type: 'element', tagName: highlighted ? 'mark' : 'span', properties: {
+            ...(highlighted ? { className: ['reference-highlight'] } : {}),
+            ...(start !== undefined ? { dataSourceStart: offsets?.[from] ?? start + from, dataSourceEnd: offsets?.[cursor] ?? start + cursor,
+              ...(offsets ? { dataSourceOffsets: JSON.stringify(offsets.slice(from, cursor + 1)) } : {}) } : {}),
+          }, children: [{ type: 'text', value: text }] };
+        });
       });
     };
     visit(tree);

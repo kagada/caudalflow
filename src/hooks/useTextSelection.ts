@@ -11,10 +11,26 @@ export function selectionDocuments(container: HTMLElement, range: Range): Refere
     if (content.contains(range.endContainer)) part.setEnd(range.endContainer, range.endOffset);
     const text = part.toString().trim();
     if (!text) return [];
-    const startElement = part.startContainer.nodeType === Node.ELEMENT_NODE ? part.startContainer as Element : part.startContainer.parentElement;
-    const endElement = part.endContainer.nodeType === Node.ELEMENT_NODE ? part.endContainer as Element : part.endContainer.parentElement;
-    const start = Number(startElement?.closest('[data-source-start]')?.getAttribute('data-source-start') ?? 0);
-    const end = Number(endElement?.closest('[data-source-end]')?.getAttribute('data-source-end') ?? 0);
+    // Range 的端点可能落在高亮 mark、粗体或链接内部，使用文字节点的原文映射而非段落边界。
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    let first: number | undefined, last: number | undefined;
+    for (let leaf = walker.nextNode(); leaf; leaf = walker.nextNode()) {
+      if (!part.intersectsNode(leaf)) continue;
+      const mapped = leaf.parentElement?.closest<HTMLElement>('[data-source-start]');
+      if (!mapped || !content.contains(mapped)) continue;
+      const begin = leaf === part.startContainer ? part.startOffset : 0;
+      const finish = leaf === part.endContainer ? part.endOffset : leaf.textContent!.length;
+      if (finish <= begin) continue;
+      const prefix = document.createRange(); prefix.selectNodeContents(mapped); prefix.setEnd(leaf, 0);
+      const base = prefix.toString().length;
+      const offsets: number[] | undefined = mapped.dataset.sourceOffsets ? JSON.parse(mapped.dataset.sourceOffsets) : undefined;
+      const origin = Number(mapped.dataset.sourceStart);
+      const from = offsets?.[base + begin] ?? origin + base + begin;
+      const to = offsets?.[base + finish] ?? origin + base + finish;
+      first = first === undefined ? from : Math.min(first, from); last = Math.max(last ?? 0, to);
+    }
+    if (first === undefined || last === undefined || last <= first) throw new Error('无法定位选中文字，请重新选择原文后引用');
+    const start = first, end = last;
     return [{ documentId: element.dataset.messageId!, text, start, ...(end > start ? { length: end - start } : {}) }];
   });
 }

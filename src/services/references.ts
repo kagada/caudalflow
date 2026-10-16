@@ -116,6 +116,19 @@ export async function resolveReference(reference: ContentReference): Promise<Con
   return { ...resolved, snapshotKey: key, summary };
 }
 
+// 用户停止过分支初始化后，下次提问仍须补齐原引用的背景，不能只发送孤立的选中文字。
+export async function resolvePendingReferences(nodeId: string, workspaceId: string | null): Promise<void> {
+  const pending = useChatStore.getState().getMessages(nodeId).filter((message) => message.reference?.summaryInput);
+  if (!pending.length) return;
+  const resolved = await Promise.all(pending.map(async (message) => ({ id: message.id, reference: await resolveReference(message.reference!) })));
+  if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || !useChatStore.getState().conversations[nodeId]) throw new Error('会话已切换或删除，请重新发送');
+  const messages = useChatStore.getState().getMessages(nodeId).map((message) => {
+    const match = pending.some((old) => old.id === message.id && old.reference === message.reference) ? resolved.find((item) => item.id === message.id) : undefined;
+    return match ? { ...message, reference: match.reference, content: match.reference.summary } : message;
+  });
+  useChatStore.getState().setConversationMessages(nodeId, messages);
+}
+
 // 引用与问题一次加入，撤销或还原问答组时可以一起处理。
 export function addQuestionWithReferences(nodeId: string, content: string, images: ChatMessage['images'], references: ContentReference[] = []): string {
   const store = useChatStore.getState();

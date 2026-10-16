@@ -43,6 +43,20 @@ describe('desktop command and persistence coordination', () => {
     await runtime.replayDesktopCommand('redo'); expect(flow.useFlowStore.getState().nodes[0].data.done).toBe(true);
   });
 
+  it('renames metadata immediately without flushing drafts or blocking the canvas', async () => {
+    const workspace = (await import('../../../stores/workspaceStore')).useWorkspaceStore;
+    let finishRename!: (value: unknown) => void;
+    const previous = fake.request.getMockImplementation()!;
+    fake.request.mockImplementation((action, payload) => action === 'rename' ? new Promise((resolve) => { finishRename = resolve; }) : previous(action, payload));
+    const savingBefore = fake.request.mock.calls.filter(([action]) => action === 'save').length;
+    const rename = runtime.renameDesktopWorkspace('w1', '新名称');
+    expect(workspace.getState().getActiveWorkspace()?.name).toBe('新名称');
+    expect(runtime.useStorageStatus.getState().busy).toBe(false);
+    expect(fake.request.mock.calls.filter(([action]) => action === 'save')).toHaveLength(savingBefore);
+    finishRename({ ...metadata, name: '新名称' }); await rename;
+    expect(workspace.getState().getActiveWorkspace()?.name).toBe('新名称');
+  });
+
   it('groups streaming tokens into one complete content operation', async () => {
     const store = chat.useChatStore.getState();
     store.addMessage('c1', 'user', '新问题'); store.addMessage('c1', 'assistant', ''); store.setStreaming('c1', true);

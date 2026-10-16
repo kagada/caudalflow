@@ -114,7 +114,7 @@ export const ChatMessage = memo(function ChatMessage({
                   />
                 );
               })}
-              {message.content && <div>{highlightSegments(message.content, ranges).map((part, index) => part.highlighted ? <mark key={index} className="reference-highlight">{part.text}</mark> : part.text)}</div>}
+              {message.content && <div data-source-start={0} data-source-end={message.content.length}>{highlightSegments(message.content, ranges).map((part, index) => part.highlighted ? <mark key={index} className="reference-highlight">{part.text}</mark> : part.text)}</div>}
             </div>
           ) : (
           <>
@@ -128,12 +128,15 @@ export const ChatMessage = memo(function ChatMessage({
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[[rehypeReferenceHighlights, { ranges, legacyTexts: exploredTexts, content: message.content }]]}
             components={{
-              code({ className, children, ...props }) {
+              code({ className, children, node, ...props }) {
                 const match = /language-(\w+)/.exec(className || '');
                 const code = String(children).replace(/\n$/, '');
                 if (match && !Array.isArray(children) && typeof children === 'string') {
                   return (
                     <SyntaxHighlighter
+                      data-source-start={node?.properties.dataSourceStart}
+                      data-source-end={node?.properties.dataSourceEnd}
+                      data-source-offsets={node?.properties.dataSourceOffsets}
                       style={oneDark}
                       language={match[1]}
                       PreTag="div"

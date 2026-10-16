@@ -212,7 +212,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
     if (referenceBusy) return;
     setReferenceBusy(true); setReferenceError('');
     try {
-      const reference = await createReference(id, sources?.length ? sources : selectionsForText(id, selectedText));
+      const reference = await createReference(id, sources?.length ? sources : selectionsForText(id, selectedText), { deferSummary: true });
       if (reference.sources[0].workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) throw new Error('工作区已切换，请重新发起分支');
       const flowStore = useFlowStore.getState();
       let parentNode = flowStore.nodes.find((n) => n.id === id);

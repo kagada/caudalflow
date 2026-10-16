@@ -95,7 +95,7 @@ export function ChatInput({
 
   return (
     <div
-      className={`nodrag nopan border-t border-border p-4 transition ${
+      className={`nowheel nodrag nopan border-t border-border p-4 transition ${
         isDragging ? 'bg-surface-700' : ''
       }`}
       onDragOver={(e) => {
@@ -145,7 +145,7 @@ export function ChatInput({
           onPaste={handlePaste}
           placeholder={t('chat.askSomething')}
           rows={1}
-          className="flex-1 resize-none bg-surface-800 text-base text-text-primary rounded-lg px-4 py-3 placeholder-text-muted border border-border focus:border-accent-500/50 focus:outline-none transition-colors"
+          className="nowheel flex-1 resize-none bg-surface-800 text-base text-text-primary rounded-lg px-4 py-3 placeholder-text-muted border border-border focus:border-accent-500/50 focus:outline-none transition-colors"
           style={{ minHeight: '36px', maxHeight: '100px' }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;

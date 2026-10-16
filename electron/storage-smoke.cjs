@@ -232,7 +232,9 @@ async function runSmokeTest(window, app, storage) {
     // 重载后从同篇回答的另一选区创建分支，复用磁盘摘要缓存。
     await window.webContents.executeJavaScript(`(() => {
       const source = [...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(element=>element.textContent==='原段落');
-      const range = document.createRange(); range.selectNodeContents(source);
+      const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+      let leaf; while ((leaf=walker.nextNode()) && !leaf.textContent.includes('原段落')) {}
+      const range = document.createRange(); range.setStart(leaf, leaf.textContent.indexOf('原段落')+1); range.setEnd(leaf, leaf.textContent.indexOf('原段落')+2);
       const selected = window.getSelection(); selected.removeAllRanges(); selected.addRange(range);
       source.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:700,clientY:400}));
     })()`);
@@ -244,10 +246,44 @@ async function runSmokeTest(window, app, storage) {
     const branch = stored.data.nodes.find((node) => node.data.parentNodeId === nodeId);
     assert(branch);
     const branchMessages = stored.data.conversations[branch.id].messages;
-    assert.equal(branchMessages[0].kind, 'reference'); assert.equal(branchMessages[0].reference.quote, '原段落');
+    assert.equal(branchMessages[0].kind, 'reference'); assert.equal(branchMessages[0].reference.quote, '段');
+    assert.equal(branchMessages[0].reference.sources[0].length, 1);
     assert.equal(branchMessages[0].reference.sources[0].documentId, answerId);
     assert.equal(summaryRequests, 2);
     assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
+    // 原生滚轮事件应滚动长输入框，不能改变画布的缩放变换。
+    await window.webContents.executeJavaScript("window.dispatchEvent(new CustomEvent('caudalflow:locate-reference',{detail:"+JSON.stringify(branch.id)+"}))");
+    await delay(400);
+    const wheelTarget = await window.webContents.executeJavaScript(`(async () => {
+      const input = document.querySelector('[data-id="${branch.id}"] textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, Array.from({length:30},(_,i)=>'滚动行 '+i).join('\\n'));
+      input.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
+      input.focus(); input.scrollTop=0;
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const rect=input.getBoundingClientRect();
+      if (document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2)!==input) throw new Error('Wheel input is occluded');
+      return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2),transform:document.querySelector('.react-flow__viewport').style.transform};
+    })()`);
+    window.webContents.focus();
+    window.webContents.sendInputEvent({type:'mouseMove',x:wheelTarget.x,y:wheelTarget.y});
+    await delay(50);
+    window.webContents.sendInputEvent({type:'mouseWheel',x:wheelTarget.x,y:wheelTarget.y,deltaY:-80,deltaX:0});
+    await delay(200);
+    const wheelResult = await window.webContents.executeJavaScript(`({scroll:document.querySelector('[data-id="${branch.id}"] textarea').scrollTop,transform:document.querySelector('.react-flow__viewport').style.transform})`);
+    assert.equal(wheelResult.transform,wheelTarget.transform); assert(wheelResult.scroll>0,JSON.stringify(wheelResult));
+    await window.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('[data-id="${branch.id}"] textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input,''); input.dispatchEvent(new Event('input',{bubbles:true}));
+      [...document.querySelectorAll('button')].find(button=>button.title.includes('重命名工作区')).click();
+    })()`);
+    await waitFor(window, "!!document.querySelector('input.w-48')");
+    await window.webContents.executeJavaScript(`(async () => {
+      const input = document.querySelector('input.w-48');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'改名响应测试'); input.dispatchEvent(new Event('input',{bubbles:true}));
+      await new Promise(resolve=>setTimeout(resolve,0)); input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    })()`);
+    await waitFor(window, "document.body.innerText.includes('改名响应测试') && !document.body.innerText.includes('正在处理工作区')");
+    assert.equal((await storage.call('load',{id:workspaceId})).metadata.name,'改名响应测试');
     // 在实际 Chromium 中核对两种主题的高亮字色与底色，避免只验证类名。
     const highlightScreenshots = [];
     for (const theme of ['light', 'dark']) {
@@ -282,7 +318,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

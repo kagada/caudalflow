@@ -24,6 +24,7 @@ export function WorkspaceSelector() {
   const [editValue, setEditValue] = useState('');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const editingSession = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -48,12 +49,14 @@ export function WorkspaceSelector() {
 
   const startEditing = useCallback(() => {
     if (!active) return;
+    editingSession.current = true;
     setEditValue(active.name);
     setEditing(true);
   }, [active]);
 
   const commitRename = useCallback(() => {
-    if (!active) return;
+    if (!active || !editingSession.current) return;
+    editingSession.current = false;
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== active.name) {
       if (isDesktopStorage()) void renameDesktopWorkspace(active.id, trimmed);
@@ -67,6 +70,7 @@ export function WorkspaceSelector() {
       if (e.key === 'Enter') {
         commitRename();
       } else if (e.key === 'Escape') {
+        editingSession.current = false;
         setEditing(false);
       }
     },

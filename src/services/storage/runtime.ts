@@ -326,10 +326,18 @@ export async function deleteDesktopWorkspace(id: string) {
 }
 
 export async function renameDesktopWorkspace(id: string, name: string) {
-  return perform(async () => {
-    const metadata = await storage.request<WorkspaceMetadata>('rename', { id, name });
-    useWorkspaceStore.setState((state) => ({ workspaces: state.workspaces.map((item) => item.id === id ? { ...item, ...metadata } : item) }));
-  });
+  const trimmed = name.trim();
+  const before = useWorkspaceStore.getState().workspaces.find((item) => item.id === id);
+  if (!before || !trimmed || before.name === trimmed) return;
+  // 名称只影响元信息，不必等待正文、草稿或生成保存，更不能遮住整个画布。
+  useWorkspaceStore.setState((state) => ({ workspaces: state.workspaces.map((item) => item.id === id ? { ...item, name: trimmed } : item) }));
+  try {
+    const metadata = await storage.request<WorkspaceMetadata>('rename', { id, name: trimmed });
+    useWorkspaceStore.setState((state) => ({ workspaces: state.workspaces.map((item) => item.id === id && item.name === trimmed ? { ...item, ...metadata } : item) }));
+  } catch (error) {
+    useWorkspaceStore.setState((state) => ({ workspaces: state.workspaces.map((item) => item.id === id && item.name === trimmed ? { ...item, name: before.name } : item) }));
+    report(error);
+  }
 }
 
 export async function exportDesktopWorkspace() {

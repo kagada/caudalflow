@@ -16,6 +16,7 @@ import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
 import { DocumentVersions } from './DocumentVersions';
 import { isDesktopStorage } from '../../services/storage/desktop';
+import { effectiveReferenceSources } from '../../utils/referenceHighlights';
 
 interface ChatMessageListProps {
   nodeId: string;
@@ -39,7 +40,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
   const referencingMessages = useChatStore(useShallow((s) => Object.values(s.conversations).flatMap((conversation) =>
     conversation.messages.filter((message) => message.kind === 'reference' && message.reference?.sources.some((source) =>
       source.conversationId === nodeId && source.workspaceId === (workspaceId ?? ''))))));
-  const referenceSources = useMemo(() => referencingMessages.flatMap((message) => message.reference!.sources.filter((source) =>
+  const referenceSources = useMemo(() => referencingMessages.flatMap((message) => effectiveReferenceSources(message.reference!).filter((source) =>
     source.conversationId === nodeId && source.workspaceId === (workspaceId ?? ''))), [referencingMessages, nodeId, workspaceId]);
   const legacyLabels = useFlowStore(useShallow(
     (s) => s.edges
