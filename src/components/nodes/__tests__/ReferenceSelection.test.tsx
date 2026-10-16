@@ -37,7 +37,11 @@ describe('rendered selection keeps raw Markdown offsets', () => {
       return selectionDocuments(container, range)[0];
     };
     for (const sources of [[], [source]]) {
-      act(() => root.render(<ChatMessage message={message} exploredTexts={[]} referenceSources={sources} />));
+      act(() => root.render(<ChatMessage message={message} backlinks={[{ nodeId: 'target', questionId: 'q', question: '为什么', sources }]} />));
+      if (sources.length) {
+        act(() => container.querySelector<HTMLButtonElement>('[data-backlink-count]')!.click());
+        act(() => document.querySelector('[data-backlink-question]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      }
       const selected = select('重点', '链接');
       expect(content.slice(selected.start, selected.start! + selected.length!)).toBe('重点** 与 [链接');
       expect(selected.length).toBeLessThan(20);

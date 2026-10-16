@@ -6,6 +6,7 @@ import { useFlowStore } from '../../stores/flowStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { isDesktopStorage } from '../../services/storage/desktop';
 import { openReferenceSourceWorkspace } from '../../services/storage/runtime';
+import { locateReferenceMessage } from '../../services/referenceNavigation';
 import { effectiveReferenceSources } from '../../utils/referenceHighlights';
 
 // 来源失效时打开独立原文快照，不切换当前文档版本，也不影响已有问答。
@@ -29,16 +30,7 @@ export function ReferenceBubble({ message }: { message: ChatMessage }) {
     const current = useChatStore.getState().getMessages(source.conversationId).find((item) => item.id === source.documentId);
     if (useWorkspaceStore.getState().activeWorkspaceId !== source.workspaceId || !node || !current ||
       current.content !== source.documentText || (source.versionId && current.versionId !== source.versionId)) { setSnapshot(source); return; }
-    for (const item of flow.nodes) if (item.data.maximized) flow.updateNodeData(item.id, { maximized: false });
-    flow.updateNodeData(source.conversationId, { minimized: false, collapsed: false }); flow.activateNode(source.conversationId);
-    window.dispatchEvent(new CustomEvent('caudalflow:locate-reference', { detail: source.conversationId }));
-    window.setTimeout(() => {
-      const messageElement = [...document.querySelectorAll<HTMLElement>('[data-message-id]')].find((element) => element.dataset.messageId === source.documentId);
-      const paragraph = [...(messageElement?.querySelectorAll<HTMLElement>('[data-source-start]') ?? [])].find((element) => Number(element.dataset.sourceStart) <= source.start && Number(element.dataset.sourceEnd) > source.start);
-      const target = paragraph ?? messageElement;
-      target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-      target?.animate?.([{ backgroundColor: getComputedStyle(target!).getPropertyValue('--reference-highlight-bg').trim() }, { backgroundColor: 'transparent' }], { duration: 1500, iterations: 2 });
-    }, 100);
+    locateReferenceMessage(source.conversationId, source.documentId, source.start);
   };
   return <div data-message-id={message.id} data-reference className="px-6 py-2">
     <div className="rounded-xl border border-border bg-surface-800/70 px-4 py-3 text-sm text-text-secondary">
@@ -46,7 +38,7 @@ export function ReferenceBubble({ message }: { message: ChatMessage }) {
         <p className="mt-3 whitespace-pre-wrap break-words leading-6">{reference.summaryInput ? '摘要尚未生成，原文和背景快照已保存。' : reference.summary}</p>
         <blockquote className="mt-3 whitespace-pre-wrap break-words border-l-2 border-border-hover pl-3 leading-6">{reference.quote}</blockquote>
       </details>
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-text-muted">{sources.map((source, index) => <button key={index} className="max-w-full truncate hover:text-text-primary hover:underline" onClick={() => locate(source)} title="定位原回答；原版本不可用时查看引用快照">来源：{source.title}{sources.length > 1 ? ` · ${index + 1}` : ''}</button>)}</div>
+      <div className="mt-2 flex flex-wrap gap-3 text-xs text-text-muted">{sources.map((source, index) => <button key={index} className="max-w-full truncate hover:text-text-primary hover:underline" onClick={(event) => { event.stopPropagation(); void locate(source); }} title="定位原回答；原版本不可用时查看引用快照">来源：{source.title}{sources.length > 1 ? ` · ${index + 1}` : ''}</button>)}</div>
     </div>
     {snapshot && createPortal(<div role="dialog" aria-modal="true" aria-label="引用来源快照" className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/50 p-6" onPointerDown={(event) => event.stopPropagation()}>
       <div className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl border border-border bg-surface-900 p-5 text-text-primary shadow-xl">

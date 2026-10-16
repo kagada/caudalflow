@@ -68,12 +68,10 @@ describe('canvas selection keeps conversation content cached', () => {
     expect(container.innerHTML).toBe(before);
   });
 
-  it('refreshes highlights when its branch label changes or is removed', () => {
-    expect(container.querySelector('mark')?.textContent).toBe('branch');
+  it('does not turn legacy edge labels into persistent text highlights', () => {
+    expect(container.querySelector('mark')).toBeNull();
     act(() => useFlowStore.getState().setEdges([{ id: 'ab', source: 'a', target: 'b', data: { label: 'changed' } }]));
-    expect(markdownRender).toHaveBeenCalled();
-    expect(container.querySelector('mark')?.textContent).toBe('changed');
-    act(() => useFlowStore.getState().setEdges([]));
+    expect(markdownRender).not.toHaveBeenCalled();
     expect(container.querySelector('mark')).toBeNull();
   });
 
@@ -87,17 +85,21 @@ describe('canvas selection keeps conversation content cached', () => {
     const content = '重复\n\n重复 **重点** 和 [链接](https://example.com)\n\n末段';
     const source = { workspaceId: '', conversationId: 'a', documentId: 'm', versionId: 'v1', title: 'A',
       documentText: content, start: 4, length: content.length - 4 };
-    const ref: Message = { id: 'ref', role: 'system', kind: 'reference', timestamp: 0, content: '', reference: {
+    const ref: Message = { id: 'ref', referenceForId: 'qb', role: 'system', kind: 'reference', timestamp: 0, content: '', reference: {
       id: 'r', snapshotKey: 'k', summary: '摘要', quote: '重复 重点 和 链接\n末段', createdAt: 0, sources: [source],
     } };
     act(() => {
       useWorkspaceStore.setState({ activeWorkspaceId: null });
       useChatStore.setState({ conversations: {
         a: { nodeId: 'a', isStreaming: false, messages: [{ id: 'm', versionId: 'v1', role: 'assistant', content, timestamp: 0 }] },
-        b: { nodeId: 'b', isStreaming: false, messages: [ref] },
+        b: { nodeId: 'b', isStreaming: false, messages: [ref, { id: 'qb', role: 'user', content: '为什么', timestamp: 1 }] },
       } });
     });
     const marks = () => [...container.querySelectorAll('mark')].map((mark) => mark.textContent).join('');
+    expect(marks()).toBe('');
+    expect(container.querySelectorAll('[data-backlink-count]')).toHaveLength(2);
+    act(() => container.querySelector<HTMLButtonElement>('[data-backlink-count]')!.click());
+    act(() => document.querySelector('[data-backlink-question]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
     const branchMarks = marks();
     expect(branchMarks).toBe('重复 重点 和 链接末段');
     expect(container.querySelector('p')?.querySelector('mark')).toBeNull();
@@ -123,12 +125,15 @@ describe('canvas selection keeps conversation content cached', () => {
     act(() => {
       useFlowStore.getState().setEdges([]);
       useChatStore.setState((state) => ({ conversations: { ...state.conversations,
-        b: { nodeId: 'b', isStreaming: false, messages: [{ id: 'r', role: 'system', kind: 'reference', content: '', timestamp: 0,
-          reference: { id: 'r', snapshotKey: 'k', summary: '', quote: 'branch', createdAt: 0, sources: [source] } }] },
+        b: { nodeId: 'b', isStreaming: false, messages: [{ id: 'r', referenceForId: 'qb', role: 'system', kind: 'reference', content: '', timestamp: 0,
+          reference: { id: 'r', snapshotKey: 'k', summary: '', quote: 'branch', createdAt: 0, sources: [source] } }, { id: 'qb', role: 'user', content: '为什么', timestamp: 1 }] },
       } }));
     });
     expect(container.querySelector('mark')).toBeNull();
     act(() => useWorkspaceStore.setState({ activeWorkspaceId: 'foreign' }));
+    expect(container.querySelector('[data-backlink-count]')).not.toBeNull();
+    act(() => container.querySelector<HTMLButtonElement>('[data-backlink-count]')!.click());
+    act(() => document.querySelector('[data-backlink-question]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
     expect(container.querySelector('mark')?.textContent).toBe('branch');
     act(() => useChatStore.getState().setConversationMessages('b', []));
     expect(container.querySelector('mark')).toBeNull();

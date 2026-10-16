@@ -344,6 +344,39 @@ async function runSmokeTest(window, app, storage) {
       assert.equal((await storage.call('load',{id:workspaceId})).metadata.name,name);
       assert(await window.webContents.executeJavaScript('window.__renameCanvasPointerPrevented'));
     }
+    // 两个完整引用与一个单字引用覆盖同一段落，应显示三个问题，而不是叠加底色。
+    const branchQuestionId = branchMessages.find(message=>message.role==='user').id;
+    await window.webContents.executeJavaScript("window.dispatchEvent(new CustomEvent('caudalflow:locate-reference',{detail:"+JSON.stringify(nodeId)+"}))");
+    await delay(350);
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-message-id="${answerId}"] mark').length`),0);
+    const backlinkAnchor = await window.webContents.executeJavaScript(`(() => {
+      const paragraph=[...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(item=>item.textContent==='原段落');
+      const button=paragraph.querySelector('[data-backlink-count]');
+      if(button.dataset.backlinkCount!=='3') throw new Error('Expected three distinct referencing questions');
+      const rect=button.getBoundingClientRect(); return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)};
+    })()`);
+    window.webContents.sendInputEvent({type:'mouseMove',...backlinkAnchor});
+    await waitFor(window,"document.querySelectorAll('[data-backlink-question]').length===3");
+    const previewPoint = await window.webContents.executeJavaScript(`(() => {
+      const item=document.querySelector('[data-backlink-question="${branchQuestionId}"]'); item.scrollIntoView({block:'nearest'});
+      const rect=item.getBoundingClientRect(); return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)};
+    })()`);
+    window.webContents.sendInputEvent({type:'mouseMove',...previewPoint});
+    await waitFor(window,`document.querySelector('[data-message-id="${answerId}"] mark')?.textContent==='段'`);
+    assert(await window.webContents.executeJavaScript("!!document.querySelector('[aria-label=\"引用此处的问题\"]')"));
+    await delay(220);
+    assert(await window.webContents.executeJavaScript("!!document.querySelector('[aria-label=\"引用此处的问题\"]')"));
+    window.webContents.sendInputEvent({type:'mouseMove',x:100,y:100});
+    await waitFor(window,"!document.querySelector('[aria-label=\"引用此处的问题\"]')");
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-message-id="${answerId}"] mark').length`),0);
+    // 再验证点击固定列表，便于逐项查看与选择。
+    await window.webContents.executeJavaScript(`(() => {
+      const paragraph=[...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(item=>item.textContent==='原段落');
+      paragraph.querySelector('[data-backlink-count]').click();
+    })()`);
+    await waitFor(window,"document.querySelectorAll('[data-backlink-question]').length===3");
+    window.webContents.sendInputEvent({type:'mouseMove',...previewPoint});
+    await waitFor(window,`document.querySelector('[data-message-id="${answerId}"] mark')?.textContent==='段'`);
     // 在实际 Chromium 中核对两种主题的高亮字色与底色，避免只验证类名。
     const highlightScreenshots = [];
     for (const theme of ['light', 'dark']) {
@@ -352,7 +385,6 @@ async function runSmokeTest(window, app, storage) {
         await new Promise(resolve => setTimeout(resolve, 250));
         const mark = document.querySelector('[data-message-id="${answerId}"] mark.reference-highlight');
         if (!mark) throw new Error('Missing source reference highlight');
-        mark.scrollIntoView({block:'center'});
         const style = getComputedStyle(mark);
         return {text: style.color, background: style.backgroundColor, primary: getComputedStyle(document.body).color};
       })()`);
@@ -371,6 +403,22 @@ async function runSmokeTest(window, app, storage) {
       highlightScreenshots.push(filename);
     }
     await window.webContents.executeJavaScript("document.documentElement.dataset.theme='light'");
+    await window.webContents.executeJavaScript("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    await waitFor(window,"!document.querySelector('[aria-label=\"引用此处的问题\"]')");
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-message-id="${answerId}"] mark').length`),0);
+    // 正向定位必须落到具体问题，并与反向来源跳转一样保留缩放。
+    await window.webContents.executeJavaScript("document.querySelector('svg.lucide-zoom-out').closest('button').click()"); await delay(300);
+    const forwardZoom = await window.webContents.executeJavaScript("document.querySelector('.react-flow__viewport').style.transform.split('scale(')[1].split(')')[0]");
+    await window.webContents.executeJavaScript(`(() => {
+      const paragraph=[...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(item=>item.textContent==='原段落');
+      paragraph.querySelector('[data-backlink-count]').click();
+    })()`);
+    await waitFor(window,"document.querySelectorAll('[data-backlink-question]').length===3");
+    await window.webContents.executeJavaScript(`document.querySelector('[data-backlink-question="${branchQuestionId}"]').click()`);
+    await waitFor(window,`!!document.querySelector('[data-message-id="${branchQuestionId}"] [data-message-content]')?.getAnimations().length`);
+    await delay(250);
+    assert.equal(await window.webContents.executeJavaScript("document.querySelector('.react-flow__viewport').style.transform.split('scale(')[1].split(')')[0]"),forwardZoom);
+    assert(!await window.webContents.executeJavaScript("!!document.querySelector('[aria-label=\"引用此处的问题\"]')"));
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
     const { DatabaseSync } = require('node:sqlite'); const copy = new DatabaseSync(destination);
@@ -378,7 +426,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'native canvas and message clicks close workspace menu', 'source navigation preserves current zoom'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'native canvas and message clicks close workspace menu', 'source navigation preserves current zoom', 'overlapping references list distinct questions', 'native hover previews only selected range', 'hover popup stays open across the gap and closes on leave', 'no permanent reference highlight', 'forward jump locates exact question without zoom'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

@@ -1,25 +1,29 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Markdown, { type Components } from 'react-markdown';
+import type { Element } from 'hast';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Check, Copy } from 'lucide-react';
-import type { ChatMessage as ChatMessageType, ReferenceSource } from '../../types/chat';
+import type { ChatMessage as ChatMessageType } from '../../types/chat';
 import { useTranslation } from 'react-i18next';
 import { ReferenceBubble } from './ReferenceBubble';
-import { referenceRanges, highlightSegments, rehypeReferenceHighlights } from '../../utils/referenceHighlights';
+import { highlightSegments, rehypeReferenceHighlights, type HighlightRange } from '../../utils/referenceHighlights';
+
+import { messageBacklinks, type ReferenceBacklink } from '../../utils/referenceBacklinks';
+import { ReferenceBacklinks } from './ReferenceBacklinks';
+
+const NO_BACKLINKS: ReferenceBacklink[] = [];
 
 interface ChatMessageProps {
   message: ChatMessageType;
-  exploredTexts: string[];
-  referenceSources?: ReferenceSource[];
+  backlinks?: ReferenceBacklink[];
   isStreaming?: boolean;
 }
 
 export const ChatMessage = memo(function ChatMessage({
   message,
-  exploredTexts,
-  referenceSources = [],
+  backlinks = NO_BACKLINKS,
   isStreaming = false,
 }: ChatMessageProps) {
   const { t } = useTranslation();
@@ -62,7 +66,127 @@ export const ChatMessage = memo(function ChatMessage({
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const ranges = referenceRanges(message, referenceSources);
+  const links = useMemo(() => messageBacklinks(message, backlinks), [message, backlinks]);
+  const [ranges, setPreviewRanges] = useState<HighlightRange[]>([]);
+
+  // 临时高亮只改变文字节点；保持段落组件身份，列表不会因悬停重绘而关闭。
+  const components = useMemo<Components>(() => {
+    const controls = (node?: Element, before?: number) => {
+      const start = node?.position?.start.offset, end = before ?? node?.position?.end.offset;
+      return start !== undefined && end !== undefined ? <ReferenceBacklinks backlinks={links} start={start} end={end} preview={setPreviewRanges} /> : null;
+    };
+    return {
+      code({ className, children, node, ...props }) {
+        const match = /language-(\w+)/.exec(className || '');
+        const code = String(children).replace(/\n$/, '');
+        if (match && !Array.isArray(children) && typeof children === 'string') {
+          return (
+            <SyntaxHighlighter
+              data-source-start={node?.properties.dataSourceStart}
+              data-source-end={node?.properties.dataSourceEnd}
+              data-source-offsets={node?.properties.dataSourceOffsets}
+              style={oneDark}
+              language={match[1]}
+              PreTag="div"
+              customStyle={{
+                margin: '0.5rem 0',
+                borderRadius: '0.375rem',
+                fontSize: '0.875rem',
+              }}
+            >
+              {code}
+            </SyntaxHighlighter>
+          );
+        }
+        return (
+          <code
+            className="bg-surface-700 px-1 py-0.5 rounded text-[14px]"
+            {...props}
+          >
+            {children}
+          </code>
+        );
+      },
+      p({ children, node }) {
+        return <p data-source-start={node?.position?.start.offset} data-source-end={node?.position?.end.offset} className="mb-4 last:mb-0">{children}{controls(node)}</p>;
+      },
+      pre({ children, node }) { return <div><pre>{children}</pre>{controls(node)}</div>; },
+      h5({ children, node }) { return <h5>{children}{controls(node)}</h5>; },
+      h6({ children, node }) { return <h6>{children}{controls(node)}</h6>; },
+      h1({ children, node }) { return <h1 className="text-[25px] leading-9 font-bold mt-6 mb-4">{children}{controls(node)}</h1>; },
+      h4({ children, node }) { return <h4 className="text-[17px] leading-7 font-semibold mt-4 mb-2">{children}{controls(node)}</h4>; },
+      h2({ children, node }) {
+        return (
+          <h2 className="text-[21px] leading-8 font-semibold text-text-primary mt-6 mb-3">
+            {children}{controls(node)}
+          </h2>
+        );
+      },
+      h3({ children, node }) {
+        return (
+          <h3 className="text-[18px] leading-7 font-semibold text-text-primary mt-5 mb-2">
+            {children}{controls(node)}
+          </h3>
+        );
+      },
+      ul({ children }) {
+        return <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>;
+      },
+      ol({ children }) {
+        return (
+          <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>
+        );
+      },
+      li({ children, node }) {
+        return <li className="text-[16px] leading-7">{children}{node?.children.some((child) => child.type === 'element' && child.tagName === 'p') ? null : controls(node, node?.children.find((child) => child.type === 'element' && ['ul', 'ol'].includes(child.tagName))?.position?.start.offset)}</li>;
+      },
+      blockquote({ children }) {
+        return (
+          <blockquote className="border-l-2 border-accent-500 pl-3 my-2 text-text-secondary italic">
+            {children}
+          </blockquote>
+        );
+      },
+      table({ children }) {
+        return (
+          <div className="overflow-x-auto my-2">
+            <table className="min-w-full text-[14px] border-collapse">
+              {children}
+            </table>
+          </div>
+        );
+      },
+      th({ children, node }) {
+        return (
+          <th className="border border-border-hover px-3 py-2 bg-surface-800 text-left font-medium">
+            {children}{controls(node)}
+          </th>
+        );
+      },
+      td({ children, node }) {
+        return (
+          <td className="border border-border px-3 py-2">
+            {children}{controls(node)}
+          </td>
+        );
+      },
+      strong({ children }) {
+        return <strong className="font-semibold text-text-primary">{children}</strong>;
+      },
+      a({ href, children }) {
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-400 hover:underline"
+          >
+            {children}
+          </a>
+        );
+      },
+    };
+  }, [links]);
 
   if (message.kind === 'reference') return <ReferenceBubble message={message} />;
   if (isSystem) {
@@ -114,7 +238,7 @@ export const ChatMessage = memo(function ChatMessage({
                   />
                 );
               })}
-              {message.content && <div data-source-start={0} data-source-end={message.content.length}>{highlightSegments(message.content, ranges).map((part, index) => part.highlighted ? <mark key={index} className="reference-highlight">{part.text}</mark> : part.text)}</div>}
+              {message.content && <div data-source-start={0} data-source-end={message.content.length}>{highlightSegments(message.content, ranges).map((part, index) => part.highlighted ? <mark key={index} className="reference-highlight">{part.text}</mark> : part.text)}<ReferenceBacklinks backlinks={links} start={0} end={message.content.length} preview={setPreviewRanges} /></div>}
             </div>
           ) : (
           <>
@@ -126,115 +250,8 @@ export const ChatMessage = memo(function ChatMessage({
           )}
           <Markdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[[rehypeReferenceHighlights, { ranges, legacyTexts: exploredTexts, content: message.content }]]}
-            components={{
-              code({ className, children, node, ...props }) {
-                const match = /language-(\w+)/.exec(className || '');
-                const code = String(children).replace(/\n$/, '');
-                if (match && !Array.isArray(children) && typeof children === 'string') {
-                  return (
-                    <SyntaxHighlighter
-                      data-source-start={node?.properties.dataSourceStart}
-                      data-source-end={node?.properties.dataSourceEnd}
-                      data-source-offsets={node?.properties.dataSourceOffsets}
-                      style={oneDark}
-                      language={match[1]}
-                      PreTag="div"
-                      customStyle={{
-                        margin: '0.5rem 0',
-                        borderRadius: '0.375rem',
-                        fontSize: '0.875rem',
-                      }}
-                    >
-                      {code}
-                    </SyntaxHighlighter>
-                  );
-                }
-                return (
-                  <code
-                    className="bg-surface-700 px-1 py-0.5 rounded text-[14px]"
-                    {...props}
-                  >
-                    {children}
-                  </code>
-                );
-              },
-              p({ children, node }) {
-                return <p data-source-start={node?.position?.start.offset} data-source-end={node?.position?.end.offset} className="mb-4 last:mb-0">{children}</p>;
-              },
-              h1({ children }) { return <h1 className="text-[25px] leading-9 font-bold mt-6 mb-4">{children}</h1>; },
-              h4({ children }) { return <h4 className="text-[17px] leading-7 font-semibold mt-4 mb-2">{children}</h4>; },
-              h2({ children }) {
-                return (
-                  <h2 className="text-[21px] leading-8 font-semibold text-text-primary mt-6 mb-3">
-                    {children}
-                  </h2>
-                );
-              },
-              h3({ children }) {
-                return (
-                  <h3 className="text-[18px] leading-7 font-semibold text-text-primary mt-5 mb-2">
-                    {children}
-                  </h3>
-                );
-              },
-              ul({ children }) {
-                return <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>;
-              },
-              ol({ children }) {
-                return (
-                  <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>
-                );
-              },
-              li({ children }) {
-                return <li className="text-[16px] leading-7">{children}</li>;
-              },
-              blockquote({ children }) {
-                return (
-                  <blockquote className="border-l-2 border-accent-500 pl-3 my-2 text-text-secondary italic">
-                    {children}
-                  </blockquote>
-                );
-              },
-              table({ children }) {
-                return (
-                  <div className="overflow-x-auto my-2">
-                    <table className="min-w-full text-[14px] border-collapse">
-                      {children}
-                    </table>
-                  </div>
-                );
-              },
-              th({ children }) {
-                return (
-                  <th className="border border-border-hover px-3 py-2 bg-surface-800 text-left font-medium">
-                    {children}
-                  </th>
-                );
-              },
-              td({ children }) {
-                return (
-                  <td className="border border-border px-3 py-2">
-                    {children}
-                  </td>
-                );
-              },
-              strong({ children }) {
-                return <strong className="font-semibold text-text-primary">{children}</strong>;
-              },
-              a({ href, children }) {
-                return (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent-400 hover:underline"
-                  >
-                    {children}
-                  </a>
-                );
-              },
-            }}
+            rehypePlugins={[[rehypeReferenceHighlights, { ranges, content: message.content }]]}
+            components={components}
           >
             {message.content || t(isStreaming ? message.reasoning ? 'chat.waitingForAnswer' : 'chat.waitingForResponse' : 'chat.noAnswer')}
           </Markdown>

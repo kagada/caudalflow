@@ -3,7 +3,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTranslation } from 'react-i18next';
 import { GitBranch } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
-import { useFlowStore } from '../../stores/flowStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAutoScroll } from '../../hooks/useAutoScroll';
@@ -16,7 +15,7 @@ import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
 import { DocumentVersions } from './DocumentVersions';
 import { isDesktopStorage } from '../../services/storage/desktop';
-import { effectiveReferenceSources } from '../../utils/referenceHighlights';
+import { buildBacklinks, selectBacklinkInputs } from '../../utils/referenceBacklinks';
 
 interface ChatMessageListProps {
   nodeId: string;
@@ -24,7 +23,7 @@ interface ChatMessageListProps {
   onRevise?: (messageId: string, prompt?: string) => void;
 }
 
-// 选中边框由卡片负责；正文只在消息或分支高亮文字变化时更新。
+// 选中边框由卡片负责；正文只在消息或引用关系变化时更新。
 export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore, onRevise }: ChatMessageListProps) {
   const { t } = useTranslation();
   const allMessages = useChatStore((s) => s.conversations[nodeId]?.messages ?? []);
@@ -36,21 +35,8 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
     [allMessages, showSystemPrompts]
   );
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
-  // 分支和粘贴引用共享来源记录，连线只为旧版数据提供文字匹配兼容。
-  const referencingMessages = useChatStore(useShallow((s) => Object.values(s.conversations).flatMap((conversation) =>
-    conversation.messages.filter((message) => message.kind === 'reference' && message.reference?.sources.some((source) =>
-      source.conversationId === nodeId && source.workspaceId === (workspaceId ?? ''))))));
-  const referenceSources = useMemo(() => referencingMessages.flatMap((message) => effectiveReferenceSources(message.reference!).filter((source) =>
-    source.conversationId === nodeId && source.workspaceId === (workspaceId ?? ''))), [referencingMessages, nodeId, workspaceId]);
-  const legacyLabels = useFlowStore(useShallow(
-    (s) => s.edges
-        .filter((e) => e.source === nodeId && e.data?.label)
-        .map((e) => e.target + '\0' + e.data!.label)
-  ));
-  const exploredTexts = useMemo(() => legacyLabels.filter((entry) => {
-    const target = entry.slice(0, entry.indexOf('\0'));
-    return !useChatStore.getState().conversations[target]?.messages.some((message) => referencingMessages.includes(message));
-  }).map((entry) => entry.slice(entry.indexOf('\0') + 1)), [legacyLabels, referencingMessages]);
+  const backlinkInputs = useChatStore(useShallow((s) => selectBacklinkInputs(s.conversations, workspaceId ?? '', nodeId)));
+  const backlinks = useMemo(() => buildBacklinks(backlinkInputs, workspaceId ?? '', nodeId), [backlinkInputs, workspaceId, nodeId]);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useAutoScroll(messages);
   const { selection, handleMouseUp, clearSelection } = useTextSelection(containerRef);
@@ -105,7 +91,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         ) : (
           <div className="py-3 space-y-2">
             {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} exploredTexts={exploredTexts} referenceSources={referenceSources} isStreaming={isStreaming && msg.id === (streamingMessageId ?? allMessages.at(-1)?.id)} />
+              <ChatMessage key={msg.id} message={msg} backlinks={backlinks} isStreaming={isStreaming && msg.id === (streamingMessageId ?? allMessages.at(-1)?.id)} />
             ))}
           </div>
         )}

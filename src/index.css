@@ -166,3 +166,26 @@ html, body, #root {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
+
+/* 数量由 CSS 展示，按钮本身没有文字节点，不会污染用户复制的原文选区。 */
+.reference-backlink-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 1px 4px;
+  vertical-align: baseline;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--surface-800);
+  color: var(--text-secondary);
+  font: 11px/16px system-ui, sans-serif;
+  cursor: pointer;
+  user-select: none;
+}
+.reference-backlink-button::after { content: attr(data-backlink-count); }
+.reference-backlink-button:hover, .reference-backlink-button:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--accent-400);
+  outline: none;
+}

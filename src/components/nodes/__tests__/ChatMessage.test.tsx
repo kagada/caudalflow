@@ -39,7 +39,7 @@ describe('ChatMessage copy button', () => {
 
     const root = createRoot(container);
     act(() => {
-      root.render(<ChatMessage message={message} exploredTexts={[]} />);
+      root.render(<ChatMessage message={message} />);
     });
 
     const button = container.querySelector<HTMLButtonElement>(
@@ -68,11 +68,11 @@ describe('ChatMessage copy button', () => {
   it('shows thinking progress instead of an empty cursor, then renders the answer separately', async () => {
     const root = createRoot(container);
     const message: ChatMessageType = { id: 'thinking', role: 'assistant', content: '', reasoning: '先分析问题', timestamp: 0 };
-    await act(async () => root.render(<ChatMessage message={message} exploredTexts={[]} isStreaming />));
+    await act(async () => root.render(<ChatMessage message={message} isStreaming />));
     expect(container.querySelector('details')?.textContent).toContain('先分析问题');
     expect(container.textContent).toContain('Waiting for the answer');
     expect(container.textContent).not.toContain('▊');
-    await act(async () => root.render(<ChatMessage message={{ ...message, content: '这是正文' }} exploredTexts={[]} />));
+    await act(async () => root.render(<ChatMessage message={{ ...message, content: '这是正文' }} />));
     expect(container.querySelector('details')?.textContent).not.toContain('这是正文');
     expect(container.textContent).toContain('这是正文');
     await act(async () => root.unmount());
@@ -83,11 +83,16 @@ describe('ChatMessage copy button', () => {
     const content = '代码 `hello`\n\n```js\nconst answer = 42;\n```';
     const message: ChatMessageType = { id: 'code', role: 'assistant', content, timestamp: 0 };
     const source = { workspaceId: '', conversationId: 'a', documentId: 'code', title: 'A', documentText: content, start: 0, length: content.length };
-    act(() => root.render(<ChatMessage message={message} exploredTexts={[]} referenceSources={[source]} />));
+    act(() => root.render(<ChatMessage message={message} backlinks={[{ nodeId: 'target', questionId: 'q', question: '为什么', sources: [source] }]} />));
+    expect(container.querySelector('mark')).toBeNull();
+    act(() => container.querySelector<HTMLButtonElement>('[data-backlink-count]')!.click());
+    act(() => document.querySelector('[data-backlink-question]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
     expect(container.querySelector('code mark')?.textContent).toBe('hello');
     expect([...container.querySelectorAll('pre mark')].map((mark) => mark.textContent).join('')).toContain('const answer = 42;');
     expect(container.textContent).not.toContain('[object Object]');
-    act(() => root.render(<ChatMessage message={{ ...message, role: 'user', content: '重复 重复' }} exploredTexts={[]} referenceSources={[{ ...source, documentText: '重复 重复', start: 3, length: 2 }]} />));
+    act(() => root.render(<ChatMessage message={{ ...message, role: 'user', content: '重复 重复' }} backlinks={[{ nodeId: 'target', questionId: 'q', question: '为什么', sources: [{ ...source, documentText: '重复 重复', start: 3, length: 2 }] }]} />));
+    act(() => container.querySelector<HTMLButtonElement>('[data-backlink-count]')!.click());
+    act(() => document.querySelector('[data-backlink-question]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
     expect(container.querySelectorAll('mark')).toHaveLength(1);
     expect(container.querySelector('mark')?.textContent).toBe('重复');
     act(() => root.unmount());

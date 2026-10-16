@@ -29,7 +29,7 @@ export function highlightSegments(text: string, ranges: HighlightRange[], offset
 }
 
 // 在 Markdown 解析后的文字节点上使用原文位置，可跨段落、粗体、链接，不把 Markdown 标记画到页面上。
-export function rehypeReferenceHighlights(options: { ranges: HighlightRange[]; legacyTexts: string[]; content: string }) {
+export function rehypeReferenceHighlights(options: { ranges: HighlightRange[]; content: string }) {
   return (tree: Root) => {
     const visit = (parent: Root | Element) => {
       parent.children = parent.children.flatMap((node): RootContent[] => {
@@ -52,13 +52,6 @@ export function rehypeReferenceHighlights(options: { ranges: HighlightRange[]; l
             const first = selected.indexOf(true), last = selected.lastIndexOf(true);
             return first < 0 ? [] : [{ start: first, end: last + 1 }];
           });
-        }
-        for (const text of options.legacyTexts.filter(Boolean)) {
-          let index = node.value.toLowerCase().indexOf(text.toLowerCase());
-          while (index >= 0) {
-            ranges.push({ start: index, end: index + text.length });
-            index = node.value.toLowerCase().indexOf(text.toLowerCase(), index + text.length);
-          }
         }
         if (parent.type === 'element' && parent.tagName === 'code' && start !== undefined) {
           parent.properties.dataSourceStart = start;
