@@ -352,7 +352,7 @@ async function runSmokeTest(window, app, storage) {
     const backlinkAnchor = await window.webContents.executeJavaScript(`(() => {
       const paragraph=[...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(item=>item.textContent==='原段落');
       const button=paragraph.querySelector('[data-backlink-count]');
-      if(getComputedStyle(paragraph).cursor!=='text') throw new Error('Document must use text cursor');
+      if(getComputedStyle(paragraph).cursor!=='auto') throw new Error('Document must use browser default cursor');
       if(getComputedStyle(button).cursor!=='pointer') throw new Error('Reference button must retain pointer cursor');
       const card=paragraph.closest('.react-flow__node');
       const input=card.querySelector('textarea');
@@ -365,6 +365,21 @@ async function runSmokeTest(window, app, storage) {
       if(button.dataset.backlinkCount!=='3') throw new Error('Expected three distinct referencing questions');
       const rect=button.getBoundingClientRect(); return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)};
     })()`);
+    // auto 的实际光标由浏览器按内容决定，不能只检查计算样式里的字符串。
+    const textPoint = await window.webContents.executeJavaScript(`(() => {
+      const paragraph=[...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(item=>item.textContent==='原段落');
+      const walker=document.createTreeWalker(paragraph,NodeFilter.SHOW_TEXT); const text=walker.nextNode();
+      const range=document.createRange(); range.selectNodeContents(text); const rect=range.getBoundingClientRect();
+      return {x:Math.round(rect.x+2),y:Math.round(rect.y+rect.height/2)};
+    })()`);
+    let documentCursor;
+    const recordCursor = (_event, type) => { documentCursor = type; };
+    window.webContents.on('cursor-changed', recordCursor);
+    try {
+      window.webContents.sendInputEvent({type:'mouseMove',x:100,y:20}); await delay(50);
+      window.webContents.sendInputEvent({type:'mouseMove',...textPoint}); await delay(150);
+      assert.equal(documentCursor,'text','Native document cursor must be I-beam');
+    } finally { window.webContents.removeListener('cursor-changed',recordCursor); }
     window.webContents.sendInputEvent({type:'mouseMove',...backlinkAnchor});
     await waitFor(window,"document.querySelectorAll('[data-backlink-question]').length===3");
     const previewPoint = await window.webContents.executeJavaScript(`(() => {
