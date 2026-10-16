@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { isDesktopStorage } from '../../services/storage/desktop';
 import { recoverOpenDesktopWorkspace, retryDesktopStorage, useStorageStatus } from '../../services/storage/runtime';
 
@@ -5,6 +6,18 @@ import { recoverOpenDesktopWorkspace, retryDesktopStorage, useStorageStatus } fr
 export function StorageGate() {
   const { ready, busy, error } = useStorageStatus();
   if (!isDesktopStorage() || (ready && !busy && !error)) return null;
+  return <StorageOverlay key={ready && !error ? 'busy' : 'immediate'} ready={ready} error={error} delayed={ready && !error} />;
+}
+
+// 操作仍立即锁定，视觉提示延迟半秒，避免文件选择器弹出前的短暂闪屏。
+function StorageOverlay({ ready, error, delayed }: { ready: boolean; error: string | null; delayed: boolean }) {
+  const [visible, setVisible] = useState(!delayed);
+  useEffect(() => {
+    if (!delayed) return;
+    const timer = window.setTimeout(() => setVisible(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [delayed]);
+  if (!visible) return <div aria-hidden="true" data-storage-pending className="fixed inset-0 z-[3000]" />;
   return <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-surface-950/90 p-8">
     <div className="max-w-lg rounded-xl border border-border bg-surface-900 p-6 text-text-primary">
       <h2 className="mb-3 text-lg font-semibold">{error ? '工作区未保存或打开失败' : ready ? '正在处理工作区…' : '正在打开或迁移工作区…'}</h2>

@@ -352,6 +352,16 @@ async function runSmokeTest(window, app, storage) {
     const backlinkAnchor = await window.webContents.executeJavaScript(`(() => {
       const paragraph=[...document.querySelectorAll('[data-message-id="${answerId}"] p')].find(item=>item.textContent==='原段落');
       const button=paragraph.querySelector('[data-backlink-count]');
+      if(getComputedStyle(paragraph).cursor!=='text') throw new Error('Document must use text cursor');
+      if(getComputedStyle(button).cursor!=='pointer') throw new Error('Reference button must retain pointer cursor');
+      const card=paragraph.closest('.react-flow__node');
+      const input=card.querySelector('textarea');
+      const inputArea=input.closest('.nodrag');
+      for(const element of [inputArea,input.parentElement]) {
+        if(getComputedStyle(element).cursor!=='auto') throw new Error('Input padding and button gaps must use browser default cursor');
+      }
+      if(getComputedStyle(input).cursor!=='auto' && getComputedStyle(input).cursor!=='text') throw new Error('Editor must not inherit canvas grab cursor');
+      if(!card.querySelector('.cursor-move')) throw new Error('Card header must retain drag cursor');
       if(button.dataset.backlinkCount!=='3') throw new Error('Expected three distinct referencing questions');
       const rect=button.getBoundingClientRect(); return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)};
     })()`);

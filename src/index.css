@@ -120,6 +120,15 @@ html, body, #root {
   transition: transform 300ms ease-out;
 }
 
+/* 正文可以选字，不能继承卡片的抓手光标；交互控件仍明确显示可点击。 */
+.react-flow__node .select-text {
+  cursor: text;
+}
+
+.react-flow__node .select-text :is(button, a[href], summary, [role="button"]) {
+  cursor: pointer;
+}
+
 .react-flow__node .select-text,
 .react-flow__node .select-text * {
   user-select: text;

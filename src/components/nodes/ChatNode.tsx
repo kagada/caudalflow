@@ -292,7 +292,8 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       onMouseDownCapture={(event) => { if (event.button === 1) event.stopPropagation(); }}
       onPointerDownCapture={() => useFlowStore.getState().activateNode(id)}
       onFocusCapture={() => useFlowStore.getState().activateNode(id)}
-      className={`relative flex flex-col bg-surface-900 border rounded-xl shadow-xl shadow-black/30 h-full ${
+      // 整张展开卡片恢复浏览器默认光标，避免输入区留白继承画布抓手；标题栏单独提示拖动。
+      className={`relative flex flex-col cursor-auto bg-surface-900 border rounded-xl shadow-xl shadow-black/30 h-full ${
         selected
           ? 'border-accent-500/60'
           : 'border-border'
