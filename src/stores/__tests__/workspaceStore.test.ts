@@ -5,11 +5,25 @@ import { useWorkspaceStore } from '../workspaceStore';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 beforeEach(() => {
-  useWorkspaceStore.setState({ workspaces: [], activeWorkspaceId: null });
+  useWorkspaceStore.setState({ workspaces: [], activeWorkspaceId: null, viewports: {} });
   localStorage.clear();
 });
 
 describe('workspaceStore', () => {
+  it('persists a separate local viewport for each workspace', async () => {
+    const store = useWorkspaceStore.getState();
+    const first = store.createWorkspace('First');
+    const second = store.createWorkspace('Second');
+    store.saveViewport(first, { x: -124, y: 87, zoom: 0.65 });
+    store.saveViewport(second, { x: 300, y: -40, zoom: 1.2 });
+    const saved = localStorage.getItem('caudalflow-workspaces')!;
+    useWorkspaceStore.setState({ viewports: {} });
+    localStorage.setItem('caudalflow-workspaces', saved);
+    await useWorkspaceStore.persist.rehydrate();
+    expect(useWorkspaceStore.getState().viewports).toEqual({
+      [first]: { x: -124, y: 87, zoom: 0.65 }, [second]: { x: 300, y: -40, zoom: 1.2 },
+    });
+  });
   describe('createWorkspace', () => {
     it('creates a workspace with default name', () => {
       useWorkspaceStore.getState().createWorkspace();

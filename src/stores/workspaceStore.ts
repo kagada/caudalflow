@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { Viewport } from '@xyflow/react';
 import type { WorkspaceMetadata } from '../types/workspace';
 
 interface WorkspaceState {
   workspaces: WorkspaceMetadata[];
   activeWorkspaceId: string | null;
+  viewports: Record<string, Viewport>;
+  saveViewport: (id: string, viewport: Viewport) => void;
   createWorkspace: (name?: string) => string;
   switchWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
@@ -17,6 +20,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     (set, get) => ({
       workspaces: [],
       activeWorkspaceId: null,
+      // 视角属于本机界面状态，不写入工作区正文、撤销队列或本地历史。
+      viewports: {},
+      saveViewport: (id, viewport) => set((state) => ({ viewports: { ...state.viewports, [id]: viewport } })),
 
       createWorkspace: (name?: string) => {
         const id = crypto.randomUUID();
@@ -82,6 +88,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       partialize: (state) => ({
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
+        viewports: state.viewports,
       }),
       // 旧 ID 必须保留给数据库迁移和引用，不能因不符合 Agent 的 UUID 约束而清空工作区。
       migrate: (persisted: unknown) => {

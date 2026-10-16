@@ -14,6 +14,7 @@ import {
   type NodeTypes,
   type EdgeTypes,
   type OnSelectionChangeParams,
+  type Viewport,
 } from '@xyflow/react';
 import { useFlowStore } from '../../stores/flowStore';
 import { useChatStore } from '../../stores/chatStore';
@@ -46,7 +47,18 @@ function SelectionHandler({ onSelectionChange }: { onSelectionChange: (params: O
 
 export function Canvas() {
   const { t } = useTranslation();
-  const { setCenter, getZoom } = useReactFlow();
+  const { setCenter, getZoom, setViewport, viewportInitialized } = useReactFlow();
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  // 只在画布就绪或工作区切换时恢复，不能在每次保存视角后再次触发定位。
+  useEffect(() => {
+    if (viewportInitialized && workspaceId) {
+      void setViewport(useWorkspaceStore.getState().viewports[workspaceId] ?? { x: 0, y: 0, zoom: 1 });
+    }
+  }, [workspaceId, viewportInitialized, setViewport]);
+  const saveViewport = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+    const store = useWorkspaceStore.getState();
+    if (store.activeWorkspaceId) store.saveViewport(store.activeWorkspaceId, viewport);
+  }, []);
   const [referenceStatus, setReferenceStatus] = useState('');
   const [referenceBusy, setReferenceBusy] = useState(false);
   useEffect(() => {
@@ -303,6 +315,7 @@ export function Canvas() {
           onDoubleClick={handleDoubleClick}
           zoomOnDoubleClick={false}
           fitView={false}
+          onMoveEnd={saveViewport}
           minZoom={0.1}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}

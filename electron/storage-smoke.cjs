@@ -444,6 +444,43 @@ async function runSmokeTest(window, app, storage) {
     await delay(250);
     assert.equal(await window.webContents.executeJavaScript("document.querySelector('.react-flow__viewport').style.transform.split('scale(')[1].split(')')[0]"),forwardZoom);
     assert(!await window.webContents.executeJavaScript("!!document.querySelector('[aria-label=\"引用此处的问题\"]')"));
+    // 原生平移和缩放后的视角必须跨重载恢复，各工作区独立保存，且不产生内容历史。
+    await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    const historyBeforeViewport = (await storage.call('history',{id:workspaceId})).length;
+    await window.webContents.executeJavaScript("document.querySelector('svg.lucide-zoom-out').closest('button').click()"); await delay(350);
+    const panPoint = await window.webContents.executeJavaScript(`(() => {
+      const pane=document.querySelector('.react-flow__pane');
+      for(let y=120;y<innerHeight-140;y+=60) for(let x=140;x<innerWidth-240;x+=60) {
+        if(document.elementFromPoint(x,y)===pane) return {x,y};
+      }
+      throw new Error('No blank pane for viewport pan');
+    })()`);
+    window.webContents.sendInputEvent({type:'mouseDown',...panPoint,button:'middle',clickCount:1});
+    window.webContents.sendInputEvent({type:'mouseMove',x:panPoint.x+117,y:panPoint.y+73});
+    window.webContents.sendInputEvent({type:'mouseUp',x:panPoint.x+117,y:panPoint.y+73,button:'middle',clickCount:1});
+    await delay(150);
+    const savedTransform = await window.webContents.executeJavaScript("document.querySelector('.react-flow__viewport').style.transform");
+    const localViewport = await window.webContents.executeJavaScript(`JSON.parse(localStorage.getItem('caudalflow-workspaces')).state.viewports[${JSON.stringify(workspaceId)}]`);
+    assert(localViewport && localViewport.zoom!==1);
+    const otherWorkspace = await storage.call('create',{name:'视角隔离测试',filename:path.join(app.getPath('userData'),'viewport-test.caudalflow')});
+    loaded=once(window.webContents,'did-finish-load'); window.webContents.reload(); await loaded;
+    await waitFor(window,`!!window.caudalflowFlush && document.querySelector('.react-flow__viewport')?.style.transform===${JSON.stringify(savedTransform)}`);
+    const selectWorkspace = async (name) => {
+      await window.webContents.executeJavaScript(`document.querySelector('div.h-9 button').click()`);
+      await window.webContents.executeJavaScript(`[...document.querySelectorAll('div.max-h-60 > button')].find(button=>button.textContent.includes(${JSON.stringify(name)})).click()`);
+    };
+    await selectWorkspace(otherWorkspace.metadata.name);
+    await waitFor(window,"document.querySelector('.react-flow__viewport')?.style.transform==='translate(0px, 0px) scale(1)'");
+    await window.webContents.executeJavaScript("document.querySelector('svg.lucide-zoom-in').closest('button').click()"); await delay(350);
+    const otherTransform = await window.webContents.executeJavaScript("document.querySelector('.react-flow__viewport').style.transform");
+    await selectWorkspace((await storage.call('load',{id:workspaceId})).metadata.name);
+    await waitFor(window,`document.querySelector('.react-flow__viewport')?.style.transform===${JSON.stringify(savedTransform)}`);
+    await selectWorkspace(otherWorkspace.metadata.name);
+    await waitFor(window,`document.querySelector('.react-flow__viewport')?.style.transform===${JSON.stringify(otherTransform)}`);
+    await selectWorkspace((await storage.call('load',{id:workspaceId})).metadata.name);
+    await waitFor(window,`document.querySelector('.react-flow__viewport')?.style.transform===${JSON.stringify(savedTransform)}`);
+    await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    assert.equal((await storage.call('history',{id:workspaceId})).length,historyBeforeViewport);
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
     const { DatabaseSync } = require('node:sqlite'); const copy = new DatabaseSync(destination);
