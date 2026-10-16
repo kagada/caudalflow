@@ -288,6 +288,31 @@ async function runSmokeTest(window, app, storage) {
       const input = document.querySelector('[data-id="${branch.id}"] textarea');
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input,''); input.dispatchEvent(new Event('input',{bubbles:true}));
     })()`);
+    // 用真实鼠标验证菜单在画布和卡片正文上都能关闭，保留正常的画布事件处理。
+    for (const target of ['canvas', 'message']) {
+      await window.webContents.executeJavaScript("document.querySelector('div.h-9 button').click()");
+      await waitFor(window, "!!document.querySelector('div.h-9 .max-h-60')");
+      const point = await window.webContents.executeJavaScript(`(() => {
+        if ('${target}' === 'canvas') {
+          const pane = document.querySelector('.react-flow__pane');
+          for(let y=100;y<innerHeight-100;y+=80) for(let x=100;x<innerWidth-100;x+=80) {
+            if(document.elementFromPoint(x,y)===pane) return {x,y};
+          }
+        } else {
+          for(const content of document.querySelectorAll('.react-flow__node [data-message-content]')) {
+            const rect=content.getBoundingClientRect();
+            const x=Math.round(rect.x+rect.width/2),y=Math.round(rect.y+rect.height/2);
+            if(x>0 && y>40 && x<innerWidth && y<innerHeight && content.contains(document.elementFromPoint(x,y))) return {x,y};
+          }
+        }
+        throw new Error('No visible '+ '${target}' +' target for dropdown test');
+      })()`);
+      window.webContents.focus();
+      window.webContents.sendInputEvent({type:'mouseMove',...point});
+      window.webContents.sendInputEvent({type:'mouseDown',...point,button:'left',clickCount:1});
+      window.webContents.sendInputEvent({type:'mouseUp',...point,button:'left',clickCount:1});
+      await waitFor(window, "!document.querySelector('div.h-9 .max-h-60')");
+    }
     for (const entry of ['title', 'dropdown']) {
       await window.webContents.executeJavaScript(`(async () => {
         if ('${entry}' === 'dropdown') { document.querySelector('div.h-9 button').click(); await new Promise(resolve=>setTimeout(resolve,0)); }
@@ -353,7 +378,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'source navigation preserves current zoom'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'native canvas and message clicks close workspace menu', 'source navigation preserves current zoom'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

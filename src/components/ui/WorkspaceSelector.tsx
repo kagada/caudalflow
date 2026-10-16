@@ -30,16 +30,16 @@ export function WorkspaceSelector() {
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId);
 
-  // Close dropdown on outside click
+  // 画布和卡片会拦截鼠标事件，外部关闭必须先在捕获阶段识别，不能依赖事件冒泡。
   useEffect(() => {
     if (!dropdownOpen) return;
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('pointerdown', handler, true);
+    return () => document.removeEventListener('pointerdown', handler, true);
   }, [dropdownOpen]);
 
   // Focus input when editing starts

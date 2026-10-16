@@ -81,3 +81,33 @@ describe('workspace rename entry points', () => {
     expect(container.querySelector('input.w-48')).toBeNull();
   });
 });
+
+describe('workspace dropdown outside click', () => {
+  it('closes on canvas or card clicks even when they suppress mouse events', async () => {
+    for (const className of ['react-flow__pane', 'react-flow__node']) {
+      await act(async () => container.querySelector('button')!.click());
+      expect(container.querySelector('.max-h-60')).not.toBeNull();
+      const outside = document.createElement('div'); outside.className = className;
+      const text = document.createElement('span'); outside.append(text); document.body.append(outside);
+      outside.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); });
+      await act(async () => text.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })));
+      expect(container.querySelector('.max-h-60')).toBeNull();
+      expect(fake.switch).not.toHaveBeenCalled(); expect(fake.rename).not.toHaveBeenCalled();
+      outside.remove();
+    }
+  });
+
+  it('keeps internal pointer clicks available for workspace selection and reopening', async () => {
+    await act(async () => container.querySelector('button')!.click());
+    const row = container.querySelectorAll<HTMLButtonElement>('.max-h-60 > button')[1];
+    await act(async () => row.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })));
+    expect(container.querySelector('.max-h-60')).not.toBeNull();
+    await act(async () => row.click());
+    expect(fake.switch).toHaveBeenCalledExactlyOnceWith('b');
+    expect(container.querySelector('.max-h-60')).toBeNull();
+    await act(async () => container.querySelector('button')!.click());
+    expect(container.querySelector('.max-h-60')).not.toBeNull();
+    await act(async () => container.querySelector('button')!.click());
+    expect(container.querySelector('.max-h-60')).toBeNull();
+  });
+});
