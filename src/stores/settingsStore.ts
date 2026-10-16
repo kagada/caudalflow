@@ -2,11 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import i18n from '../i18n';
 import type { LLMConfig } from '../types/chat';
+import { DEFAULT_BUILTIN_PROMPTS, type BuiltinPromptKey } from '../services/builtinPrompts';
+import { isSettingsWindow, openSettingsWindow } from '../services/settingsWindow';
 
 type Theme = 'light' | 'dark' | 'system';
 export interface PromptPreset { id: string; name: string; content: string }
 
 interface SettingsState {
+  builtinPrompts: Record<BuiltinPromptKey, string>;
+  setBuiltinPrompt: (key: BuiltinPromptKey, content: string) => void;
   promptPresets: PromptPreset[];
   showPromptSettings: boolean;
   setShowPromptSettings: (show: boolean) => void;
@@ -47,9 +51,14 @@ function applyTheme(theme: Theme) {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      builtinPrompts: { ...DEFAULT_BUILTIN_PROMPTS },
+      setBuiltinPrompt: (key, content) => set({ builtinPrompts: { ...get().builtinPrompts, [key]: content.trim() || DEFAULT_BUILTIN_PROMPTS[key] } }),
       promptPresets: [],
       showPromptSettings: false,
-      setShowPromptSettings: (show) => set({ showPromptSettings: show }),
+      setShowPromptSettings: (show) => {
+        if (show && location.protocol === 'app:' && !isSettingsWindow()) { void openSettingsWindow('presets').catch(() => set({ showPromptSettings: true })); return; }
+        set({ showPromptSettings: show });
+      },
       // 预设与 API 设置一起保存，菜单始终读取最新列表。
       savePromptPreset: (preset) => set({ promptPresets: get().promptPresets.some((item) => item.id === preset.id) ? get().promptPresets.map((item) => item.id === preset.id ? preset : item) : [...get().promptPresets, preset] }),
       deletePromptPreset: (id) => set({ promptPresets: get().promptPresets.filter((item) => item.id !== id) }),
@@ -99,9 +108,12 @@ export const useSettingsStore = create<SettingsState>()(
 
       toggleSystemPrompts: () => set({ showSystemPrompts: !get().showSystemPrompts }),
 
-      toggleSettings: () => set({ showSettings: !get().showSettings }),
+      toggleSettings: () => get().setShowSettings(!get().showSettings),
 
-      setShowSettings: (show) => set({ showSettings: show }),
+      setShowSettings: (show) => {
+        if (show && location.protocol === 'app:' && !isSettingsWindow()) { void openSettingsWindow().catch(() => set({ showSettings: true })); return; }
+        set({ showSettings: show });
+      },
 
       dismissWelcome: () => set({ welcomeDismissed: true }),
 
@@ -122,6 +134,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'caudalflow-settings',
       partialize: (state) => ({
+        builtinPrompts: state.builtinPrompts,
         promptPresets: state.promptPresets,
         llmConfig: state.llmConfig,
         showMinimap: state.showMinimap,
@@ -143,6 +156,11 @@ export const useSettingsStore = create<SettingsState>()(
 
 // Listen for system theme changes
 if (typeof window !== 'undefined') {
+  // 独立设置窗口和主窗口共享持久化设置，改完后下一次模型请求立即采用新值。
+  window.addEventListener('storage', (event) => {
+    if (event.key !== 'caudalflow-settings') return;
+    void Promise.resolve(useSettingsStore.persist.rehydrate()).then(() => { void i18n.changeLanguage(useSettingsStore.getState().language); });
+  });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     const currentTheme = useSettingsStore.getState().theme;
     if (currentTheme === 'system') {

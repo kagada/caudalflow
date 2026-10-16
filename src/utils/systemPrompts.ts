@@ -1,5 +1,8 @@
+import { useSettingsStore } from '../stores/settingsStore';
+import { DEFAULT_BUILTIN_PROMPTS } from '../services/builtinPrompts';
+
 export function getRootSystemPrompt(): string {
-  return `You are a knowledgeable assistant helping the user explore topics in depth. Provide clear, well-structured responses using markdown formatting. Use headings, lists, bold text, code blocks, and tables when appropriate to make information scannable and engaging. Keep responses informative but concise — the user can always ask follow-up questions or branch into subtopics.`;
+  return useSettingsStore.getState().builtinPrompts?.chatSystem ?? DEFAULT_BUILTIN_PROMPTS.chatSystem;
 }
 
 export function getMergeSystemPrompt(

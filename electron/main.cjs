@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, net, protocol, shell, session, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, net, protocol, shell, session, dialog } = require('electron');
 const path = require('node:path');
 const { APP_ORIGIN, createProtocolHandler } = require('./protocol.cjs');
+const { referenceClipboard } = require('./clipboard.cjs');
 
 app.setName('CaudalFlow');
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
@@ -10,11 +11,32 @@ const smokeTest = process.argv.includes('--smoke-test');
 if (smokeTest) app.setPath('userData', path.join(app.getPath('temp'), `caudalflow-desktop-smoke-${process.pid}`));
 
 let mainWindow;
+let settingsWindow;
 let storageService;
 let closing = false;
 
 function openExternal(url) {
   if (['https:', 'http:'].includes(new URL(url).protocol)) void shell.openExternal(url);
+}
+
+// 设置窗口共享同源设置，但不创建第二个工作区运行时，避免并发写入会话。
+async function openSettingsWindow(section = 'general') {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    if (!smokeTest) { settingsWindow.show(); settingsWindow.focus(); }
+    await settingsWindow.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('caudalflow:settings-section',{detail:${JSON.stringify(section)}}))`);
+    return;
+  }
+  const target = `${APP_ORIGIN}/?view=settings&section=${section}`;
+  settingsWindow = new BrowserWindow({ title: 'CaudalFlow 设置', width: 940, height: 850, minWidth: 700, minHeight: 520,
+    parent: mainWindow, show: false, autoHideMenuBar: true, backgroundColor: '#0a0a0a',
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, offscreen: smokeTest } });
+  settingsWindow.setMenu(null);
+  settingsWindow.once('ready-to-show', () => { if (!smokeTest) settingsWindow?.show(); });
+  settingsWindow.on('closed', () => { settingsWindow = null; });
+  settingsWindow.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
+  settingsWindow.webContents.on('will-navigate', (event, url) => { if (url !== target) { event.preventDefault(); openExternal(url); } });
+  await settingsWindow.loadURL(target);
 }
 
 // 刷新和退出都先暂停生成并落盘，不能依赖 beforeunload 的异步保存。
@@ -54,7 +76,7 @@ function createWindow() {
   mainWindow.webContents.on('did-fail-load', (_event, code, description) => {
     if (code !== -3 && !smokeTest) dialog.showErrorBox('CaudalFlow 启动失败', description);
   });
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => { settingsWindow?.close(); mainWindow = null; });
   // 异步落盘完成后才关闭窗口，不能依赖 beforeunload 中来不及结束的网络请求。
   mainWindow.on('close', (event) => {
     if (closing || smokeTest) return;
@@ -78,7 +100,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(() => {
     storageService = require('./storage/service.cjs').createStorageService(app.getPath('userData'), dialog, () => mainWindow);
-    protocol.handle('app', createProtocolHandler(path.join(app.getAppPath(), 'dist'), net.fetch, storageService, clipboard));
+    protocol.handle('app', createProtocolHandler(path.join(app.getAppPath(), 'dist'), net.fetch, storageService, referenceClipboard, { openSettings: openSettingsWindow }));
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => callback(permission === 'clipboard-sanitized-write'));
     session.defaultSession.on('will-download', (_event, item) => item.setSaveDialogOptions({ title: '导出学习工作区' }));
     Menu.setApplicationMenu(Menu.buildFromTemplate([

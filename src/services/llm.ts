@@ -4,6 +4,7 @@ import { getProvider } from './providers/registry';
 import { useSettingsStore } from '../stores/settingsStore';
 import { trackGeneration } from './streamLifecycle';
 import { modelMessages } from './references';
+import { DEFAULT_BUILTIN_PROMPTS } from './builtinPrompts';
 
 export function streamChat(
   messages: ChatMessage[],
@@ -44,7 +45,7 @@ export function generateTitle(
       id: 'system',
       role: 'system',
       content:
-        '根据首次问题提炼简短、具体的会话标题，使用问题的语言，中文尽量不超过 16 字，其他语言不超过 8 个词。上下文仅用于理解指代。只输出一行标题，不要引号、Markdown、解释或回答问题。',
+        useSettingsStore.getState().builtinPrompts?.conversationTitle ?? DEFAULT_BUILTIN_PROMPTS.conversationTitle,
       timestamp: 0,
     },
     {

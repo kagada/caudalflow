@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPanel } from '../SettingsPanel';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { fetchModels } from '../../../services/providers/api';
+import { DEFAULT_BUILTIN_PROMPTS } from '../../../services/builtinPrompts';
 
 vi.hoisted(() => {
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() });
@@ -32,7 +33,7 @@ afterEach(async () => {
 
 // 模拟真实表单输入，验证设置入口和保存行为连通。
 async function change(selector: string, value: string) {
-  const input = container.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!;
+  const input = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!;
   const prototype = input instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   await act(async () => {
     Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(input, value);
@@ -41,11 +42,22 @@ async function change(selector: string, value: string) {
 }
 
 describe('API settings form', () => {
+  it('exposes the actual built-in summary prompt and persists edits with a restore-default action', async () => {
+    await act(async () => [...document.querySelectorAll('nav button')].find((button) => button.textContent === '内置提示词')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const input = document.querySelector<HTMLTextAreaElement>('[aria-label="内置提示词内容"]')!;
+    expect(input.value).toContain('{{maxChars}}');
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '新的摘要规则 {{maxChars}}'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '保存提示词')!.click());
+    expect(useSettingsStore.getState().builtinPrompts.referenceSummary).toBe('新的摘要规则 {{maxChars}}');
+    expect(JSON.parse(localStorage.getItem('caudalflow-settings')!).state.builtinPrompts.referenceSummary).toBe('新的摘要规则 {{maxChars}}');
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '恢复默认')!.click());
+    expect(useSettingsStore.getState().builtinPrompts.referenceSummary).toBe(DEFAULT_BUILTIN_PROMPTS.referenceSummary);
+  });
   it('offers a DeepSeek preset with editable URL and thinking mode', async () => {
     await change('#llm-provider', 'deepseek');
-    expect(container.querySelector<HTMLInputElement>('#api-endpoint')!.value).toBe('https://api.deepseek.com');
-    expect(container.querySelector<HTMLInputElement>('#api-model')!.value).toBe('deepseek-flash');
-    expect(container.querySelector('#thinking-mode')).not.toBeNull();
+    expect(document.querySelector<HTMLInputElement>('#api-endpoint')!.value).toBe('https://api.deepseek.com');
+    expect(document.querySelector<HTMLInputElement>('#api-model')!.value).toBe('deepseek-flash');
+    expect(document.querySelector('#thinking-mode')).not.toBeNull();
   });
   it('lets the user configure and persist an API from the provider selector', async () => {
     await change('#llm-provider', 'custom');
@@ -54,17 +66,17 @@ describe('API settings form', () => {
     await change('#api-model', 'my-model');
     expect(useSettingsStore.getState().llmConfig).toMatchObject({ providerId: 'custom', endpoint: 'http://localhost:1234/v1', apiKey: 'test-key', model: 'my-model' });
     expect(JSON.parse(localStorage.getItem('caudalflow-settings')!).state.llmConfig.model).toBe('my-model');
-    expect(container.querySelector<HTMLInputElement>('#api-key')!.type).toBe('password');
+    expect(document.querySelector<HTMLInputElement>('#api-key')!.type).toBe('password');
   });
 
   it('keeps model entry editable after fetching suggestions without an API key', async () => {
     vi.mocked(fetchModels).mockResolvedValue([{ id: 'suggested', name: 'Suggested' }]);
     await change('#llm-provider', 'custom');
     await change('#api-endpoint', 'http://localhost:1234/v1');
-    const button = [...container.querySelectorAll('button')].find((element) => element.textContent?.includes('Fetch Models'))!;
+    const button = [...document.querySelectorAll('button')].find((element) => element.textContent?.includes('Fetch Models'))!;
     expect(button.disabled).toBe(false);
     await act(async () => button.click());
-    expect(container.querySelector('datalist option')?.getAttribute('value')).toBe('suggested');
+    expect(document.querySelector('datalist option')?.getAttribute('value')).toBe('suggested');
     await change('#api-model', 'unlisted-model');
     expect(useSettingsStore.getState().llmConfig.model).toBe('unlisted-model');
   });
@@ -73,9 +85,9 @@ describe('API settings form', () => {
     vi.mocked(fetchModels).mockRejectedValue(new Error('HTTP 401'));
     await change('#llm-provider', 'custom');
     await change('#api-endpoint', 'https://example.com/v1');
-    const button = [...container.querySelectorAll('button')].find((element) => element.textContent?.includes('Fetch Models'))!;
+    const button = [...document.querySelectorAll('button')].find((element) => element.textContent?.includes('Fetch Models'))!;
     await act(async () => button.click());
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('HTTP 401');
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('HTTP 401');
     await change('#api-model', 'manual-model');
     expect(useSettingsStore.getState().llmConfig.model).toBe('manual-model');
   });

@@ -21,6 +21,7 @@ async function runSmokeTest(window, app, storage) {
   let titleRequests = 0;
   let summaryRequests = 0;
   const chatRequests = [];
+  const summaryPrompts = [];
   const server = createServer(async (request, response) => {
     try {
       assert.equal(request.url, '/v1/chat/completions');
@@ -30,6 +31,7 @@ async function runSmokeTest(window, app, storage) {
       const input = JSON.parse(body);
       if (input.messages[0]?.content.startsWith('将以下学习对话整理')) {
         summaryRequests++;
+        summaryPrompts.push(input.messages[0].content);
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });
         response.end('data:{"choices":[{"delta":{"content":"引用摘要：SQLite 原段落的学习背景"},"finish_reason":"stop"}]}\n\ndata:[DONE]\n');
         return;
@@ -161,8 +163,8 @@ async function runSmokeTest(window, app, storage) {
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button=>button.textContent==='复制引用').click()");
     await waitFor(window, "!!window.__referenceClipboard");
     const copied = await window.webContents.executeJavaScript('window.__referenceClipboard');
-    assert(copied.html.includes('data-caudalflow-reference')); assert(copied.text.includes('引用摘要：SQLite'));
-    assert.equal(summaryRequests, 1);
+    assert(copied.html.includes('data-caudalflow-reference')); assert(copied.text.includes('原段落'));
+    assert.equal(summaryRequests, 0);
     await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"新建对话\"]').click()");
     await waitFor(window, "document.querySelectorAll('.react-flow textarea').length===2");
     await window.webContents.executeJavaScript(`(async () => {
@@ -182,6 +184,44 @@ async function runSmokeTest(window, app, storage) {
     const childMessages = stored.data.conversations[childId].messages;
     assert.equal(childMessages[0].kind, 'reference'); assert.equal(childMessages[1].role, 'user'); assert.equal(childMessages[2].role, 'assistant');
     assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
+    // 真正的第二个 BrowserWindow 编辑提示词，主窗口通过同源 storage 事件采用新值。
+    await window.webContents.executeJavaScript("fetch('/api/settings-window',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'prompts'})}).then(response=>{if(!response.ok)throw new Error('settings window failed')})");
+    const { BrowserWindow } = require('electron');
+    const settingsWindow = BrowserWindow.getAllWindows().find((item) => item !== window && item.webContents.getURL().includes('view=settings'));
+    assert(settingsWindow);
+    await waitFor(settingsWindow, "!!document.querySelector('[aria-label=\"内置提示词内容\"]')");
+    assert(await settingsWindow.webContents.executeJavaScript('window.caudalflowFlush === undefined'));
+    await settingsWindow.webContents.executeJavaScript(`(async () => {
+      const input = document.querySelector('[aria-label="内置提示词内容"]');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,input.value+'\\n只保留核心知识。（窗口同步验证）');
+      input.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
+      [...document.querySelectorAll('button')].find(button=>button.textContent==='保存提示词').click();
+      [...document.querySelectorAll('button')].find(button=>button.textContent==='普通问答系统提示').click();
+      await new Promise(resolve=>setTimeout(resolve,0));
+      const chat = document.querySelector('[aria-label="内置提示词内容"]');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(chat,chat.value+'\\n设置窗口同步标记');
+      chat.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
+      [...document.querySelectorAll('button')].find(button=>button.textContent==='保存提示词').click();
+    })()`);
+    await delay(150);
+    const settingsScreenshot = path.join(app.getPath('userData'), 'settings-window-smoke.png');
+    await fs.writeFile(settingsScreenshot, (await settingsWindow.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"新建对话\"]').click()");
+    await waitFor(window, "document.querySelectorAll('.react-flow textarea').length===3");
+    await window.webContents.executeJavaScript(`(async () => {
+      const input = [...document.querySelectorAll('.react-flow textarea')].at(-1);
+      const copied = ${JSON.stringify(copied)};
+      const data = new DataTransfer(); data.setData('text/html',copied.html); data.setData('text/plain',copied.text);
+      input.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'设置窗口同步测试');
+      input.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
+      input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    })()`);
+    await waitFor(window, "document.querySelectorAll('[data-reference]').length===2");
+    await delay(400); await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    assert(chatRequests.at(-1).messages[0].content.includes('设置窗口同步标记'));
+    assert(summaryPrompts.at(-1).includes('窗口同步验证'));
+    settingsWindow.close();
     assert(!chatRequests.at(-1).messages.some((message) => message.content.includes('Branched from a conversation')));
     const referenceScreenshot = path.join(app.getPath('userData'), 'reference-smoke.png');
     await fs.writeFile(referenceScreenshot, (await window.webContents.capturePage()).toPNG());
@@ -198,7 +238,7 @@ async function runSmokeTest(window, app, storage) {
     })()`);
     await waitFor(window, "[...document.querySelectorAll('[role=menu] button')].some(button=>button.textContent==='从选区分支追问')");
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button=>button.textContent==='从选区分支追问').click()");
-    await waitFor(window, "document.querySelectorAll('[data-reference]').length===2");
+    await waitFor(window, "document.querySelectorAll('[data-reference]').length===3");
     await delay(400); await window.webContents.executeJavaScript('window.caudalflowFlush()');
     stored = await storage.call('load', { id: workspaceId });
     const branch = stored.data.nodes.find((node) => node.data.parentNodeId === nodeId);
@@ -206,7 +246,7 @@ async function runSmokeTest(window, app, storage) {
     const branchMessages = stored.data.conversations[branch.id].messages;
     assert.equal(branchMessages[0].kind, 'reference'); assert.equal(branchMessages[0].reference.quote, '原段落');
     assert.equal(branchMessages[0].reference.sources[0].documentId, answerId);
-    assert.equal(summaryRequests, 1);
+    assert.equal(summaryRequests, 2);
     assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
@@ -215,7 +255,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'portable workspace excludes personal history'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

@@ -20,6 +20,8 @@ export interface ContentReference {
   quote: string;
   sources: ReferenceSource[];
   createdAt: number;
+  // 复制时先保存背景，发送时才摘要，复制不再等待远端服务。
+  summaryInput?: { role: 'user' | 'assistant'; content: string; images?: { base64: string; mimeType: string }[] }[];
 }
 
 export interface ReferenceSelection { documentId: string; text: string; start?: number; length?: number }

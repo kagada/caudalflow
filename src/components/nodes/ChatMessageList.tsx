@@ -100,7 +100,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
       {versionDocument && <DocumentVersions nodeId={nodeId} documentId={versionDocument} close={() => setVersionDocument(null)} />}
       {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isDesktopStorage() ? setVersionDocument : undefined} copyReference={async () => {
         if (menu.kind === 'message' && menu.message.reference) await copyReference(menu.message.reference);
-        else await copyReference(await createReference(nodeId, menu.kind === 'selection' ? menu.sources : [{ documentId: menu.message.id, text: menu.message.content }]));
+        else await copyReference(await createReference(nodeId, menu.kind === 'selection' ? menu.sources : [{ documentId: menu.message.id, text: menu.message.content }], { deferSummary: true }));
       }} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {
         const store = useChatStore.getState();
         store.setConversationMessages(nodeId, store.getMessages(nodeId).filter((message) => message.id !== id && message.referenceForId !== id));

@@ -1,4 +1,4 @@
-import { addQuestionWithReferences } from '../services/references';
+import { addQuestionWithReferences, resolveReference } from '../services/references';
 import { cancelReferenceConversation } from '../services/referenceConversation';
 import type { ContentReference } from '../types/chat';
 import { prepareFirstQuestion } from '../services/conversationTitle';
@@ -22,10 +22,11 @@ export function useChatNode(nodeId: string) {
           return await fileToBase64(file);
         })
       );      
+      const resolvedReferences = await Promise.all(references.map(resolveReference));
       const store = useChatStore.getState();
       if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || !store.conversations[nodeId]) throw new Error('会话已切换或删除，请重新发送');
       if (store.conversations[nodeId].isStreaming) throw new Error('请先等待回复完成或停止生成');
-      addQuestionWithReferences(nodeId, content, processedImages, references);
+      addQuestionWithReferences(nodeId, content, processedImages, resolvedReferences);
       const messages = store.getMessages(nodeId);
 
       const systemPrompt = conversationSystemPrompt(nodeId);

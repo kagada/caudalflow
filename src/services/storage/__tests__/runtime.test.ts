@@ -106,6 +106,16 @@ describe('desktop command and persistence coordination', () => {
     expect(chat.useChatStore.getState().getMessages('c1')[0].id).toBe('m1');
   });
 
+  it('opens a matching cross-workspace source but keeps the active workspace when the original version is unavailable', async () => {
+    const source = { workspaceId: 'w2', conversationId: 'c1', documentId: 'm1', title: '来源', documentText: '初始', start: 0, length: 2 };
+    const foreign = { metadata: { ...metadata, id: 'w2' }, revision: 1, data: structuredClone(stored) };
+    fake.load.mockResolvedValue(foreign);
+    expect(await runtime.openReferenceSourceWorkspace({ ...source, documentText: '已经被替换的原文' })).toBe(false);
+    expect(runtime.useStorageStatus.getState().error).toBeNull();
+    expect(await runtime.openReferenceSourceWorkspace(source)).toBe(true);
+    expect((await import('../../../stores/workspaceStore')).useWorkspaceStore.getState().activeWorkspaceId).toBe('w2');
+  });
+
   it('does not discard unsaved runtime data on a failed write and allows retry', async () => {
     failSave = true; flow.useFlowStore.getState().updateNodeData('c1', { label: '未保存' });
     await expect(runtime.flushDesktopStorage()).rejects.toThrow('磁盘不可写');

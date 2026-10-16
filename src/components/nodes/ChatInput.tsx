@@ -62,6 +62,7 @@ export function ChatInput({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    if (sending) return;
 
     const files = Array.from(e.dataTransfer.files).filter((f) =>
       f.type.startsWith('image/')
@@ -71,6 +72,7 @@ export function ChatInput({
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
+    if (sending) { e.preventDefault(); return; }
     try {
       const reference = readReferenceClipboard(e.clipboardData.getData('text/html'));
       if (reference) { e.preventDefault(); setReferences((old) => [...old, reference]); setError(''); return; }
@@ -104,10 +106,11 @@ export function ChatInput({
       onDrop={handleDrop}
     >
       {references.length > 0 && <div aria-label="待发送引用" className="mb-2 space-y-2">{references.map((reference, index) => <div key={`${reference.id}-${index}`} className="flex items-start gap-2 rounded-lg border border-border bg-surface-800 p-2 text-xs text-text-secondary">
-        <details className="min-w-0 flex-1"><summary className="cursor-pointer truncate">引用 · {reference.sources.map((source) => source.title).join('、')}</summary><p className="mt-2 whitespace-pre-wrap break-words">{reference.summary}</p><blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-border pl-2">{reference.quote}</blockquote></details>
-        <button aria-label={`移除引用 ${index + 1}`} onClick={() => setReferences((old) => old.filter((_, item) => item !== index))}><X size={14} /></button>
+        <details className="min-w-0 flex-1"><summary className="cursor-pointer truncate">引用 · {reference.sources.map((source) => source.title).join('、')}</summary><p className="mt-2 whitespace-pre-wrap break-words">{reference.summaryInput ? '已保存原文和背景快照，发送时生成摘要。' : reference.summary}</p><blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-border pl-2">{reference.quote}</blockquote></details>
+        <button disabled={sending} aria-label={`移除引用 ${index + 1}`} onClick={() => setReferences((old) => old.filter((_, item) => item !== index))}><X size={14} /></button>
       </div>)}</div>}
       {error && <p role="alert" className="mb-2 text-xs text-red-400">{error}</p>}
+      {sending && <p role="status" className="mb-2 text-xs text-text-muted">正在准备引用和问题…</p>}
       {images.length > 0 && (
         <div className="flex gap-2 mb-2 flex-wrap">
           {images.map((file, i) => (
@@ -120,6 +123,7 @@ export function ChatInput({
                 className="w-full h-full object-cover"
               />
               <button
+                disabled={sending}
                 onClick={() => removeImage(i)}
                 className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"
               >
@@ -134,6 +138,7 @@ export function ChatInput({
         
 
         <textarea
+          disabled={sending}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -161,7 +166,7 @@ export function ChatInput({
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={!supportsVision}
+          disabled={!supportsVision || sending}
           className="shrink-0 p-2 rounded-lg bg-surface-800 text-text-secondary hover:bg-surface-700 transition disabled:opacity-30"
           title={
             supportsVision

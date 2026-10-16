@@ -8,6 +8,19 @@ import { usePersistence } from './hooks/usePersistence';
 import { useSettingsStore } from './stores/settingsStore';
 import { PromptSettingsPanel } from './components/ui/PromptSettingsPanel';
 import { StorageGate } from './components/ui/StorageGate';
+import { SettingsWindow } from './components/ui/SettingsWindow';
+import { isSettingsWindow } from './services/settingsWindow';
+
+function ReferenceCopyNotice() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const copied = () => { setVisible(true); clearTimeout(timer); timer = setTimeout(() => setVisible(false), 3500); };
+    window.addEventListener('caudalflow:reference-copied', copied);
+    return () => { clearTimeout(timer); window.removeEventListener('caudalflow:reference-copied', copied); };
+  }, []);
+  return visible ? <div role="status" className="fixed bottom-5 left-1/2 z-[12000] -translate-x-1/2 rounded-lg border border-border bg-surface-900 px-4 py-3 text-sm text-text-primary shadow-xl">引用已复制，可粘贴到任意工作区的提问框；其他软件会得到引用原文。</div> : null;
+}
 
 function AppInner() {
   const { t } = useTranslation();
@@ -33,6 +46,7 @@ function AppInner() {
     <StrictMode>
       <Canvas />
       <StorageGate />
+      <ReferenceCopyNotice />
       {showPromptSettings && <PromptSettingsPanel />}
       
       {/* Chat Toggle Button */}
@@ -62,6 +76,7 @@ function AppInner() {
 }
 
 export default function App() {
+  if (isSettingsWindow()) return <SettingsWindow />;
   return (
     <CopilotKitProviderShell>
       <ReactFlowProvider>

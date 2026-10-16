@@ -9,6 +9,7 @@ import { createContentHistory, describeContentChange } from './commands';
 import type { HistoryDetail, HistoryEntry, HistorySelection, SavedWorkspace, StoredWorkspace } from './types';
 import type { DocumentVersion } from './types';
 import type { ChatMessage } from '../../types/chat';
+import type { ReferenceSource } from '../../types/chat';
 import { cancelAllGenerations } from '../streamLifecycle';
 import { hasPersistedFlowChanges } from '../../utils/flowPersistence';
 
@@ -283,6 +284,18 @@ export async function switchDesktopWorkspace(id: string) {
     const workspace = await storage.load(id);
     activate(workspace, useWorkspaceStore.getState().workspaces.find((item) => item.id === id));
   });
+}
+
+// 跨工作区来源能打开且仍是原版本时才切换；缺失来源直接由引用快照兜底，不阻塞当前保存。
+export async function openReferenceSourceWorkspace(source: ReferenceSource): Promise<boolean> {
+  return Boolean(await perform(async () => {
+    let workspace: StoredWorkspace;
+    try { workspace = await storage.load(source.workspaceId); } catch { return false; }
+    const document = workspace.data.conversations[source.conversationId]?.messages.find((message) => message.id === source.documentId);
+    if (!document || document.content !== source.documentText || (source.versionId && document.versionId !== source.versionId)) return false;
+    await finishGenerations(); activate(workspace);
+    return true;
+  }));
 }
 
 export async function createDesktopWorkspace(name = '新工作区', data?: WorkspaceData) {

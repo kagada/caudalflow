@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { X, Sun, Moon, Monitor, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { BuiltinPromptSettings } from './BuiltinPromptSettings';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { listProviders } from '../../services/providers/registry';
 import { fetchModels, testConnection } from '../../services/providers/api';
@@ -8,7 +10,7 @@ import type { LLMConfig } from '../../types/chat';
 import { isDeepSeekEndpoint } from '../../services/providers/thinking';
 import { isDesktopRuntime } from '../../services/providers/transport';
 
-export function SettingsPanel() {
+export function SettingsPanel({ standalone = false }: { standalone?: boolean }) {
   const { t } = useTranslation();
   const showSettings = useSettingsStore((s) => s.showSettings);
   const setShowSettings = useSettingsStore((s) => s.setShowSettings);
@@ -29,6 +31,17 @@ export function SettingsPanel() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const requestVersion = useRef(0);
   const isOpenAICompatible = ['custom', 'openai', 'deepseek'].includes(config.providerId);
+  const [tab, setTab] = useState(new URLSearchParams(location.search).get('section') === 'prompts' ? 'prompts' : 'general');
+  const close = () => standalone ? window.close() : setShowSettings(false);
+  useEffect(() => {
+    const change = (event: Event) => {
+      const section = (event as CustomEvent<string>).detail;
+      if (section === 'presets') useSettingsStore.getState().setShowPromptSettings(true);
+      else setTab(section === 'prompts' ? 'prompts' : 'general');
+    };
+    window.addEventListener('caudalflow:settings-section', change);
+    return () => window.removeEventListener('caudalflow:settings-section', change);
+  }, []);
 
   // 更改接口后旧请求的结果不能写回，避免显示其他服务商的模型或连接状态。
   const handleConfigChange = (changes: Partial<LLMConfig>) => {
@@ -73,7 +86,7 @@ export function SettingsPanel() {
     }
   }, [config.endpoint, config.apiKey, config.model, config.thinkingMode]);
 
-  if (!showSettings) return null;
+  if (!standalone && !showSettings) return null;
 
   const labelClass = 'block text-xs font-medium mb-1';
   const inputClass =
@@ -85,19 +98,20 @@ export function SettingsPanel() {
     { value: 'system' as const, icon: Monitor, label: t('settings.themeSystem') },
   ];
 
-  return (
-    <div className="absolute top-0 right-0 z-50 h-full w-80 bg-surface-900 border-l border-border shadow-2xl shadow-black/50 flex flex-col">
+  const panel = (
+    <div role="dialog" aria-label="设置" className={`bg-surface-900 border border-border flex flex-col text-text-primary ${standalone ? 'h-screen w-full' : 'h-[85vh] w-full max-w-4xl overflow-hidden rounded-xl shadow-2xl'}`}>
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h2 className="text-sm font-semibold text-text-primary">{t('settings.title')}</h2>
         <button
-          onClick={() => setShowSettings(false)}
+          onClick={close}
           className="text-text-secondary hover:text-text-primary transition-colors"
         >
           <X size={18} />
         </button>
       </div>
+      <nav className="flex gap-2 border-b border-border px-4 py-2"><button aria-pressed={tab === 'general'} onClick={() => setTab('general')} className="rounded-lg px-3 py-2 hover:bg-surface-800">常规设置</button><button aria-pressed={tab === 'prompts'} onClick={() => setTab('prompts')} className="rounded-lg px-3 py-2 hover:bg-surface-800">内置提示词</button></nav>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'prompts' ? <BuiltinPromptSettings /> : <div className="mx-auto max-w-3xl p-5 space-y-4">
         <button onClick={() => useSettingsStore.getState().setShowPromptSettings(true)} className="w-full rounded-lg border border-border bg-surface-800 px-3 py-2 text-left text-sm hover:bg-surface-700">{t('menu.managePrompts')}</button>
         {/* Theme Section */}
         <div className="border-b border-border pb-4">
@@ -346,7 +360,7 @@ export function SettingsPanel() {
             <option value="zh">中文</option>
           </select>
         </div>
-      </div>
+      </div>}</div>
 
       <div className="px-4 py-3 border-t border-border">
         <p className="text-[10px] text-text-muted text-center">
@@ -355,4 +369,5 @@ export function SettingsPanel() {
       </div>
     </div>
   );
+  return standalone ? panel : createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/45 p-6">{panel}</div>, document.body);
 }

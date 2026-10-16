@@ -4,6 +4,8 @@ import type { ChatMessage, ReferenceSource } from '../../types/chat';
 import { useChatStore } from '../../stores/chatStore';
 import { useFlowStore } from '../../stores/flowStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { isDesktopStorage } from '../../services/storage/desktop';
+import { openReferenceSourceWorkspace } from '../../services/storage/runtime';
 
 // 来源失效时打开独立原文快照，不切换当前文档版本，也不影响已有问答。
 export function ReferenceBubble({ message }: { message: ChatMessage }) {
@@ -16,7 +18,10 @@ export function ReferenceBubble({ message }: { message: ChatMessage }) {
   }, [snapshot]);
   const reference = message.reference;
   if (!reference) return null;
-  const locate = (source: ReferenceSource) => {
+  const locate = async (source: ReferenceSource) => {
+    if (useWorkspaceStore.getState().activeWorkspaceId !== source.workspaceId) {
+      if (!isDesktopStorage() || !await openReferenceSourceWorkspace(source)) { setSnapshot(source); return; }
+    }
     const flow = useFlowStore.getState();
     const node = flow.nodes.find((item) => item.id === source.conversationId);
     const current = useChatStore.getState().getMessages(source.conversationId).find((item) => item.id === source.documentId);

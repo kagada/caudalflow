@@ -323,7 +323,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
         maximized={!!maximized}
         done={!!done}
         onToggleDone={handleToggleDone}
-        onCopyReference={async () => { await copyReference(await createReference(id)); }}
+        onCopyReference={async () => { await copyReference(await createReference(id, undefined, { deferSummary: true })); }}
         isPanning={isPanning}
         onMinimize={handleMinimize}
         onMaximize={handleMaximize}

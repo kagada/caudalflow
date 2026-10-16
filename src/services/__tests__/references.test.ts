@@ -5,17 +5,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatStore } from '../../stores/chatStore';
 import { useFlowStore } from '../../stores/flowStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { addQuestionWithReferences, createReference, modelMessages } from '../references';
+import { addQuestionWithReferences, createReference, modelMessages, resolveReference } from '../references';
 import { conversationSystemPrompt } from '../conversationContext';
 
-const provider = vi.hoisted(() => ({ streamChat: vi.fn() }));
+const provider = vi.hoisted(() => ({ streamChat: vi.fn(), prompt: undefined as string | undefined }));
 vi.mock('../providers/registry', () => ({ getProvider: () => provider }));
-vi.mock('../../stores/settingsStore', () => ({ useSettingsStore: { getState: () => ({ llmConfig: { providerId: 'test', model: 'test', endpoint: 'local' } }) } }));
+vi.mock('../../stores/settingsStore', () => ({ useSettingsStore: { getState: () => ({ builtinPrompts: { referenceSummary: provider.prompt }, llmConfig: { providerId: 'test', model: 'test', endpoint: 'local' } }) } }));
 vi.mock('../storage/desktop', () => ({ isDesktopStorage: () => false }));
 vi.mock('../storage/runtime', () => ({ flushDesktopStorage: vi.fn() }));
 let serial = 0;
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal('crypto', webcrypto); serial++;
+  provider.prompt = undefined;
   provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('完整知识背景摘要'); callbacks.onDone(); });
   useWorkspaceStore.setState({ activeWorkspaceId: 'w1' });
   useFlowStore.setState({ nodes: [{ id: 'parent', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '学习来源' } }], edges: [] });
@@ -28,6 +29,36 @@ beforeEach(() => {
 });
 
 describe('independent reference snapshots', () => {
+  it('copies without contacting the model and resolves the captured background after switching workspaces', async () => {
+    const reference = await createReference('parent', [{ documentId: 'a1', text: '重要结论' }], { deferSummary: true });
+    expect(provider.streamChat).not.toHaveBeenCalled();
+    expect(reference.summaryInput?.length).toBe(2);
+    useChatStore.getState().removeConversation('parent');
+    useWorkspaceStore.setState({ activeWorkspaceId: 'w2' });
+    const resolved = await resolveReference(reference);
+    expect(resolved.summary).toBe('完整知识背景摘要'); expect(resolved.quote).toBe('重要结论');
+    expect(resolved.sources[0].workspaceId).toBe('w1'); expect(resolved.summaryInput).toBeUndefined();
+  });
+
+  it('includes prompt changes in the cache key and retries oversized summaries without saving oversized results', async () => {
+    const draft = await createReference('parent', undefined, { deferSummary: true });
+    const first = await resolveReference(draft);
+    provider.prompt = '请压缩为短摘要，最多 {{maxChars}} 字。';
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1000)); callbacks.onDone(); });
+    const second = await resolveReference(draft);
+    expect(first.snapshotKey).not.toBe(second.snapshotKey);
+    expect(provider.streamChat).toHaveBeenCalledTimes(3);
+    expect(provider.streamChat.mock.calls[2][0][0].content).toContain('上次结果过长');
+    expect(second.summary).toBe('完整知识背景摘要');
+  });
+
+  it('rejects an uncompressed result after one retry and permits retrying the original snapshot', async () => {
+    const draft = await createReference('parent', undefined, { deferSummary: true });
+    provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1000)); callbacks.onDone(); });
+    await expect(resolveReference(draft)).rejects.toThrow('未保存');
+    expect(provider.streamChat).toHaveBeenCalledTimes(2);
+    expect(draft.summaryInput).toBeDefined();
+  });
   it('summarizes complete documents up to the selected answer and shares the cache across selections', async () => {
     const a = await createReference('parent', [{ documentId: 'a1', text: '第一段知识' }]);
     const b = await createReference('parent', [{ documentId: 'a1', text: '重要结论' }]);
