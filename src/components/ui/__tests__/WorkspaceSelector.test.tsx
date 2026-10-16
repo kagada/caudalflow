@@ -41,12 +41,19 @@ async function edit(entry: 'title' | 'active' | 'other') {
 
 describe('workspace rename entry points', () => {
   for (const entry of ['title', 'active', 'other'] as const) {
-    for (const finish of ['Enter', 'blur'] as const) {
+    for (const finish of ['Enter', 'blur', 'canvas'] as const) {
       it(`${entry} commits with ${finish} and exits editing`, async () => {
         const input = await edit(entry);
         await act(async () => {
           if (finish === 'Enter') input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-          else input.blur();
+          else if (finish === 'blur') input.blur();
+          else {
+            // 画布会阻止默认行为，此时浏览器不会自动让输入框失焦。
+            const canvas = document.createElement('div'); document.body.append(canvas);
+            canvas.addEventListener('pointerdown', (event) => event.preventDefault());
+            const event = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+            canvas.dispatchEvent(event); expect(event.defaultPrevented).toBe(true); canvas.remove();
+          }
         });
         expect(fake.rename).toHaveBeenCalledExactlyOnceWith(entry === 'other' ? 'b' : 'a', '新名称');
         expect(container.querySelector('input.w-48')).toBeNull();
@@ -66,5 +73,11 @@ describe('workspace rename entry points', () => {
     const input = await edit('active');
     await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
     expect(fake.rename).not.toHaveBeenCalled(); expect(container.querySelector('input.w-48')).toBe(input);
+  });
+  it('saves when the application window loses focus', async () => {
+    await edit('active');
+    await act(async () => window.dispatchEvent(new Event('blur')));
+    expect(fake.rename).toHaveBeenCalledExactlyOnceWith('a', '新名称');
+    expect(container.querySelector('input.w-48')).toBeNull();
   });
 });

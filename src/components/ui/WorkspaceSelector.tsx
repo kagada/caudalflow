@@ -65,13 +65,27 @@ export function WorkspaceSelector() {
     if (!id) return;
     editingSession.current = null;
     const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === id);
-    const trimmed = editValue.trim();
+    const trimmed = (inputRef.current?.value ?? editValue).trim();
     if (workspace && trimmed && trimmed !== workspace.name) {
       if (isDesktopStorage()) void renameDesktopWorkspace(id, trimmed);
       else renameWorkspace(id, trimmed);
     }
     setEditing(false);
   }, [editValue, renameWorkspace]);
+
+  useEffect(() => {
+    if (!editing) return;
+    // 画布的框选会阻止默认失焦；在捕获阶段识别外部点击，保存不依赖浏览器是否转移焦点。
+    const saveOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !inputRef.current?.contains(event.target)) commitRename();
+    };
+    document.addEventListener('pointerdown', saveOutside, true);
+    window.addEventListener('blur', commitRename);
+    return () => {
+      document.removeEventListener('pointerdown', saveOutside, true);
+      window.removeEventListener('blur', commitRename);
+    };
+  }, [editing, commitRename]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

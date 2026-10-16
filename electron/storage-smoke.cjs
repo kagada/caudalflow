@@ -300,10 +300,24 @@ async function runSmokeTest(window, app, storage) {
         const input = document.querySelector('input.w-48'); input.focus();
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(name)}); input.dispatchEvent(new Event('input',{bubbles:true}));
         await new Promise(resolve=>setTimeout(resolve,0));
-        input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
       })()`);
+      // 用原生鼠标点击空白画布；这里会阻止默认失焦，不能用 input.blur() 代替。
+      const outsidePoint = await window.webContents.executeJavaScript(`(() => {
+        const pane = document.querySelector('.react-flow__pane');
+        window.__renameCanvasPointerPrevented = false;
+        pane.addEventListener('pointerdown',event=>{window.__renameCanvasPointerPrevented=event.defaultPrevented},{once:true});
+        for(let y=100;y<innerHeight-100;y+=80) for(let x=100;x<innerWidth-100;x+=80) {
+          if(document.elementFromPoint(x,y)===pane) return {x,y};
+        }
+        throw new Error('No blank canvas point for rename test');
+      })()`);
+      window.webContents.focus();
+      window.webContents.sendInputEvent({type:'mouseMove',...outsidePoint});
+      window.webContents.sendInputEvent({type:'mouseDown',...outsidePoint,button:'left',clickCount:1});
+      window.webContents.sendInputEvent({type:'mouseUp',...outsidePoint,button:'left',clickCount:1});
       await waitFor(window, "!document.querySelector('input.w-48') && document.body.innerText.includes("+JSON.stringify(name)+") && !document.body.innerText.includes('正在处理工作区')");
       assert.equal((await storage.call('load',{id:workspaceId})).metadata.name,name);
+      assert(await window.webContents.executeJavaScript('window.__renameCanvasPointerPrevented'));
     }
     // 在实际 Chromium 中核对两种主题的高亮字色与底色，避免只验证类名。
     const highlightScreenshots = [];
@@ -339,7 +353,7 @@ async function runSmokeTest(window, app, storage) {
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'source navigation preserves current zoom'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'source navigation preserves current zoom'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);
