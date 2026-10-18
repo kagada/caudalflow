@@ -22,7 +22,7 @@ export function useChatNode(nodeId: string) {
           return await fileToBase64(file);
         })
       );      
-      const resolvedReferences = await Promise.all(references.map(resolveReference));
+      const resolvedReferences = await Promise.all(references.map((reference) => resolveReference(reference, { nodeId })));
       const store = useChatStore.getState();
       if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || !store.conversations[nodeId]) throw new Error('会话已切换或删除，请重新发送');
       if (store.conversations[nodeId].isStreaming) throw new Error('请先等待回复完成或停止生成');
@@ -45,7 +45,7 @@ export function useChatNode(nodeId: string) {
       prepareFirstQuestion(nodeId, messages.filter((message) => message.kind === 'reference').map((message) => message.content).join('\n\n') || systemPrompt);
 
       // Create placeholder assistant message
-      store.addMessage(nodeId, 'assistant', '');
+      const answerId = store.addMessage(nodeId, 'assistant', '');
       store.setStreaming(nodeId, true);
 
       // Cancel previous stream
@@ -73,7 +73,8 @@ export function useChatNode(nodeId: string) {
             useChatStore.getState().setStreaming(nodeId, false);
           },
         },
-        controller.signal
+        controller.signal,
+        { nodeId, documentId: answerId },
       );
     },
     [nodeId]

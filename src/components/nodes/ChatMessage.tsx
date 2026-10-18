@@ -5,13 +5,15 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Check, Copy } from 'lucide-react';
-import type { ChatMessage as ChatMessageType } from '../../types/chat';
+import type { ChatMessage as ChatMessageType, RequestUsage } from '../../types/chat';
 import { useTranslation } from 'react-i18next';
 import { ReferenceBubble } from './ReferenceBubble';
 import { highlightSegments, rehypeReferenceHighlights, type HighlightRange } from '../../utils/referenceHighlights';
 
 import { messageBacklinks, type ReferenceBacklink } from '../../utils/referenceBacklinks';
 import { ReferenceBacklinks } from './ReferenceBacklinks';
+import { UsageStatistics } from './UsageStatistics';
+import { answerUsage } from '../../utils/tokenUsage';
 
 const NO_BACKLINKS: ReferenceBacklink[] = [];
 
@@ -19,16 +21,19 @@ interface ChatMessageProps {
   message: ChatMessageType;
   backlinks?: ReferenceBacklink[];
   isStreaming?: boolean;
+  questionUsage?: RequestUsage;
 }
 
 export const ChatMessage = memo(function ChatMessage({
   message,
   backlinks = NO_BACKLINKS,
   isStreaming = false,
+  questionUsage,
 }: ChatMessageProps) {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+  const currentUsage = isUser ? questionUsage : answerUsage(message, isStreaming);
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const resetTimeoutRef = useRef<number | null>(null);
@@ -259,6 +264,7 @@ export const ChatMessage = memo(function ChatMessage({
           </>
         )}
         </div>
+        <UsageStatistics usage={currentUsage ? [currentUsage] : undefined} label={isUser ? '本次提问' : '本次回答'} showEmpty onAccent={isUser} />
       </div>
 
       {lightbox && (

@@ -9,6 +9,7 @@ import { flushDesktopStorage } from './storage/runtime';
 import { getProvider } from './providers/registry';
 import { trackGeneration } from './streamLifecycle';
 import { DEFAULT_BUILTIN_PROMPTS, REFERENCE_SUMMARY_MAX_CHARS, REFERENCE_SUMMARY_TARGET_CHARS, renderSummaryPrompt } from './builtinPrompts';
+import { trackRequestUsage, type UsageTarget } from './requestUsage';
 
 const cache = new Map<string, string>();
 const pending = new Map<string, Promise<string>>();
@@ -26,7 +27,7 @@ export function modelMessages(messages: ChatMessage[]): ChatMessage[] {
 }
 
 // 对同一份完整背景只生成一次摘要；缓存失败不影响已生成的引用，生成失败则允许重试。
-async function summarize(key: string, context: ChatMessage[], workspaceId: string, prompt: string, maxChars: number): Promise<string> {
+async function summarize(key: string, context: ChatMessage[], workspaceId: string, prompt: string, maxChars: number, target?: UsageTarget): Promise<string> {
   if (cache.has(key)) return cache.get(key)!;
   if (pending.has(key)) return pending.get(key)!;
   const task = (async () => {
@@ -38,25 +39,27 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
     const config = useSettingsStore.getState().llmConfig;
     const provider = getProvider(config.providerId);
     if (!provider) throw new Error('请先配置可用的模型，再生成引用摘要');
-    const generate = (input: ChatMessage[], instruction: string) => new Promise<string>((resolve, reject) => {
+    const generate = (input: ChatMessage[], instruction: string, purpose: 'reference_summary' | 'summary_compression') => new Promise<string>((resolve, reject) => {
       const tracked = trackGeneration(new AbortController().signal);
+      const usage = trackRequestUsage(target, purpose, config, tracked.controller.signal);
       let text = '';
       const finish = () => { tracked.controller.signal.removeEventListener('abort', aborted); tracked.release(); };
       const aborted = () => { finish(); reject(new Error('引用摘要已取消，请重新复制引用')); };
       tracked.controller.signal.addEventListener('abort', aborted, { once: true });
-      const fail = (error: Error) => { finish(); reject(error); };
+      const fail = (error: Error) => { usage.fail(); finish(); reject(error); };
       try {
         provider.streamChat([{ id: 'summary-system', role: 'system', content: instruction, timestamp: 0 }, ...modelMessages(input).map((message) => ({ ...message, role: message.role === 'system' ? 'user' as const : message.role }))],
           { ...config, maxTokens: Math.max(128, Math.min(4096, maxChars * 3)), thinkingMode: 'disabled' }, {
+            onUsage: usage.onUsage,
             onToken: (token) => { text += token; },
-            onDone: () => { finish(); if (text.trim()) resolve(text.trim()); else reject(new Error('模型没有返回摘要，请重试')); },
+            onDone: () => { usage.complete(); finish(); if (text.trim()) resolve(text.trim()); else reject(new Error('模型没有返回摘要，请重试')); },
             onError: fail,
           }, tracked.controller.signal);
       } catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
     });
-    let summary = await generate(context, prompt);
+    let summary = await generate(context, prompt, 'reference_summary');
     if (summary.length > maxChars) {
-      summary = await generate([{ id: 'compress', role: 'user', content: summary, timestamp: 0 }], `${prompt}\n上次结果过长。请将下面的摘要进一步压缩至约 ${REFERENCE_SUMMARY_TARGET_CHARS} 字，最多 ${maxChars} 字，只输出压缩结果。`);
+      summary = await generate([{ id: 'compress', role: 'user', content: summary, timestamp: 0 }], `${prompt}\n上次结果过长。请将下面的摘要进一步压缩至约 ${REFERENCE_SUMMARY_TARGET_CHARS} 字，最多 ${maxChars} 字，只输出压缩结果。`, 'summary_compression');
     }
     if (summary.length > maxChars) throw new Error(`摘要压缩后仍超过 ${maxChars} 字，请重试`);
     cache.set(key, summary);
@@ -102,11 +105,11 @@ export async function createReference(nodeId: string, selections?: ReferenceSele
   const quote = targets.map((selection, index) => selection.text || sources[index].documentText).join('\n\n');
   const reference: ContentReference = { id: nanoid(), snapshotKey, summary: '', quote, sources, createdAt: Date.now(),
     summaryInput: modelMessages(context).map(({ role, content, images }) => ({ role: role === 'system' ? 'user' : role, content, ...(images?.length ? { images } : {}) })) };
-  return options.deferSummary ? reference : resolveReference(reference);
+  return options.deferSummary ? reference : resolveReference(reference, { nodeId });
 }
 
 // 发送时使用剪切板内的背景快照生成摘要，可跨工作区使用，不回读来源的当前内容。
-export async function resolveReference(reference: ContentReference): Promise<ContentReference> {
+export async function resolveReference(reference: ContentReference, target?: UsageTarget): Promise<ContentReference> {
   if (!reference.summaryInput) return reference;
   const settings = useSettingsStore.getState();
   const sourceChars = reference.summaryInput.reduce((total, message) => total + message.content.length, 0);
@@ -115,7 +118,7 @@ export async function resolveReference(reference: ContentReference): Promise<Con
   const prompt = renderSummaryPrompt(settings.builtinPrompts?.referenceSummary ?? DEFAULT_BUILTIN_PROMPTS.referenceSummary, sourceChars, maxChars);
   const key = await referenceKey(JSON.stringify({ snapshot: reference.snapshotKey, prompt, maxChars, model: settings.llmConfig.model, provider: settings.llmConfig.providerId, endpoint: settings.llmConfig.endpoint }));
   const context: ChatMessage[] = reference.summaryInput.map((message, index) => ({ ...message, id: `snapshot-${index}`, timestamp: 0 }));
-  const summary = await summarize(key, context, useWorkspaceStore.getState().activeWorkspaceId ?? '', prompt, maxChars);
+  const summary = await summarize(key, context, useWorkspaceStore.getState().activeWorkspaceId ?? '', prompt, maxChars, target);
   const { summaryInput, ...resolved } = reference; void summaryInput;
   return { ...resolved, snapshotKey: key, summary };
 }
@@ -124,7 +127,7 @@ export async function resolveReference(reference: ContentReference): Promise<Con
 export async function resolvePendingReferences(nodeId: string, workspaceId: string | null): Promise<void> {
   const pending = useChatStore.getState().getMessages(nodeId).filter((message) => message.reference?.summaryInput);
   if (!pending.length) return;
-  const resolved = await Promise.all(pending.map(async (message) => ({ id: message.id, reference: await resolveReference(message.reference!) })));
+  const resolved = await Promise.all(pending.map(async (message) => ({ id: message.id, reference: await resolveReference(message.reference!, { nodeId, documentId: message.id }) })));
   if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || !useChatStore.getState().conversations[nodeId]) throw new Error('会话已切换或删除，请重新发送');
   const messages = useChatStore.getState().getMessages(nodeId).map((message) => {
     const match = pending.some((old) => old.id === message.id && old.reference === message.reference) ? resolved.find((item) => item.id === message.id) : undefined;

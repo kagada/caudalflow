@@ -30,17 +30,18 @@ async function runSmokeTest(window, app, storage) {
       let body = '';
       for await (const chunk of request) body += chunk;
       const input = JSON.parse(body);
+      assert.equal(input.stream_options?.include_usage, true);
       if (input.messages[0]?.content.startsWith('将以下学习对话整理')) {
         summaryRequests++;
         summaryPrompts.push(input.messages[0].content);
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        response.end('data:{"choices":[{"delta":{"content":"引用摘要：SQLite 原段落的学习背景"},"finish_reason":"stop"}]}\n\ndata:[DONE]\n');
+        response.end('data:{"choices":[{"delta":{"content":"引用摘要：SQLite 原段落的学习背景"},"finish_reason":"stop"}]}\ndata:{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":50}}}\ndata:[DONE]\n');
         return;
       }
       if (input.messages[0]?.content.includes('根据首次问题提炼')) {
         titleRequests++;
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        response.end('data:{"choices":[{"delta":{"content":"SQLite 聊天自检标题"},"finish_reason":"stop"}]}\n\ndata:[DONE]\n');
+        response.end('data:{"choices":[{"delta":{"content":"SQLite 聊天自检标题"},"finish_reason":"stop"}]}\ndata:{"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":0}}}\ndata:[DONE]\n');
         return;
       }
       const answer = ++requests === 1 ? '回复成功' : '回复成功·重答';
@@ -50,7 +51,7 @@ async function runSmokeTest(window, app, storage) {
       await delay(100);
       response.write('data:{"choices":[{"delta":{"content":"SQLite 流式"}}]}\n\n');
       await delay(100);
-      response.end(`data:{"choices":[{"delta":{"content":${JSON.stringify(answer)}},"finish_reason":"stop"}]}\n\ndata:[DONE]\n`);
+      response.end(`data:{"choices":[{"delta":{"content":${JSON.stringify(answer)}},"finish_reason":"stop"}]}\ndata:{"choices":[],"usage":{"prompt_tokens":${requests === 1 ? 200 : 210},"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":100}}}\ndata:[DONE]\n`);
     } catch (error) { response.writeHead(500); response.end(error.message); }
   });
   try {
@@ -89,15 +90,23 @@ async function runSmokeTest(window, app, storage) {
     assert.equal(creationDetail.after.nodes[0].data.topic, 'SQLite 聊天自检标题');
     assert.equal(stored.data.conversations[nodeId].messages.at(-1).content, 'SQLite 流式回复成功');
     assert(Number.isSafeInteger(stored.data.conversations[nodeId].messages.at(-1).versionId));
-    assert(await window.webContents.executeJavaScript("document.querySelector('details').textContent.includes('桌面思考测试')"));
+    assert(await window.webContents.executeJavaScript("[...document.querySelectorAll('details')].some(item=>item.textContent.includes('桌面思考测试'))"));
+    assert.equal(stored.data.conversations[nodeId].usage.reduce((sum, record) => sum + record.inputTokens, 0), 220);
+    assert.equal(stored.data.conversations[nodeId].messages.at(-1).usage[0].cachedInputTokens, 100);
+    await waitFor(window, "[...document.querySelectorAll('[data-token-usage] summary')].some(item=>item.textContent.includes('本会话累计') && item.textContent.includes('输入 220'))");
 
     const answerId = stored.data.conversations[nodeId].messages.at(-1).id;
+    const questionId = stored.data.conversations[nodeId].messages.find((message) => message.role === 'user').id;
+    const usageIs = (id, count) => `document.querySelector('[data-message-id="${id}"] [data-token-usage] summary')?.textContent.includes('输入 ${count}')`;
+    await waitFor(window, usageIs(questionId, 200)); await waitFor(window, usageIs(answerId, 200));
     const context = `document.querySelector('[data-message-id="${answerId}"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:700,clientY:400}))`;
     await window.webContents.executeJavaScript(context);
     await waitFor(window, "!!document.querySelector('[role=menu]')");
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button => button.textContent==='重新回答这个问题').click()");
     await waitFor(window, "document.body.innerText.includes('SQLite 流式回复成功·重答')");
     await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    assert.deepEqual(chatRequests[1].messages, chatRequests[0].messages);
+    await waitFor(window, usageIs(questionId, 210)); await waitFor(window, usageIs(answerId, 210));
     await window.webContents.executeJavaScript(context);
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button => button.textContent==='文档版本').click()");
     await waitFor(window, "!!document.querySelector('[aria-label=\"文档版本\"] button') && [...document.querySelectorAll('[aria-label=\"文档版本\"] button')].some(button => button.textContent.includes('SQLite 流式回复成功') && !button.textContent.includes('重答'))");
@@ -108,7 +117,12 @@ async function runSmokeTest(window, app, storage) {
     await waitFor(window, "document.body.innerText.includes('SQLite 流式回复成功·重答')");
     await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"重做内容操作\"]').click()");
     await waitFor(window, "!document.body.innerText.includes('回复成功·重答')");
+    await waitFor(window, usageIs(questionId, 200)); await waitFor(window, usageIs(answerId, 200));
     assert.equal(requests, 2);
+    await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    const usageAfterVersionSwitch = (await storage.call('load', { id: workspaceId })).data.conversations[nodeId].usage;
+    assert.equal(usageAfterVersionSwitch.filter((record) => record.purpose === 'answer').length, 2);
+    assert.equal(usageAfterVersionSwitch.reduce((sum, record) => sum + record.inputTokens, 0), 430);
 
     // UI 入口修改完成状态，随后撤销和重做，不能重新调用模型。
     await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"卡片菜单\"]').click()");
@@ -126,6 +140,7 @@ async function runSmokeTest(window, app, storage) {
     assert.deepEqual(legacy, []);
     loaded = once(window.webContents, 'did-finish-load'); window.webContents.reload(); await loaded;
     await waitFor(window, "!!window.caudalflowFlush && document.body.innerText.includes('SQLite 流式回复成功') && !!document.querySelector('[data-conversation-done]')");
+    await waitFor(window, usageIs(questionId, 200)); await waitFor(window, usageIs(answerId, 200));
     assert(await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"撤销内容操作\"]').disabled"));
     stored = await storage.call('load', { id: workspaceId });
     assert.equal(stored.data.conversations[nodeId].messages.at(-1).content, 'SQLite 流式回复成功');
@@ -503,6 +518,22 @@ async function runSmokeTest(window, app, storage) {
     assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM documents WHERE kind IS NULL').get().n, 0);
     assert.deepEqual(copy.prepare('PRAGMA foreign_key_check').all(), []);
     copy.close();
+    // 同一会话的第二问沿用回答用量入口，重载后仍可读取。
+    const previousRequests = requests;
+    await window.webContents.executeJavaScript(`(async () => {
+      const input = document.querySelector('.react-flow__node[data-id="${nodeId}"] textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'第二问用量验证');
+      input.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
+      input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    })()`);
+    await waitFor(window, `document.querySelector('.react-flow__node[data-id="${nodeId}"] textarea')?.disabled === false && [...document.querySelectorAll('[data-message-id]')].some(element=>element.textContent.includes('第二问用量验证') && element.querySelector('[data-token-usage] summary')?.textContent.includes('输入 210'))`);
+    await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    assert.equal(requests, previousRequests + 1);
+    stored = await storage.call('load', { id: workspaceId });
+    const laterQuestion = stored.data.conversations[nodeId].messages.at(-2);
+    assert.equal(laterQuestion.content, '第二问用量验证');
+    loaded = once(window.webContents, 'did-finish-load'); window.webContents.reload(); await loaded;
+    await waitFor(window, usageIs(laterQuestion.id, 210));
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
     console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'native canvas and message clicks close workspace menu', 'source navigation preserves current zoom', 'overlapping references list distinct questions', 'native hover previews only selected range', 'hover popup stays open across the gap and closes on leave', 'no permanent reference highlight', 'forward jump locates exact question without zoom'] }));

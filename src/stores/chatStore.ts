@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
-import type { ChatMessage, Conversation, MessageRole } from '../types/chat';
+import type { ChatMessage, Conversation, MessageRole, RequestUsage } from '../types/chat';
+import { mergeUsage } from '../utils/tokenUsage';
 
 export interface ActiveNodeContext {
   nodeId: string;
@@ -26,12 +27,21 @@ interface ChatState {
   setConversations: (conversations: Record<string, Conversation>) => void;
   setConversationMessages: (nodeId: string, messages: ChatMessage[]) => void;
   addOrUpdateMessage: (nodeId: string, message: ChatMessage) => void;
+  recordUsage: (nodeId: string, usage: RequestUsage, documentId?: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: {},
   activeNodeContext: null,
   setActiveNodeContext: (ctx) => set({ activeNodeContext: ctx }),
+
+  // 会话累计包含标题、摘要和已删除回答的请求；消息自身保留对应请求明细。
+  recordUsage: (nodeId, usage, documentId) => {
+    const conversation = get().conversations[nodeId];
+    if (!conversation) return;
+    const messages = documentId ? conversation.messages.map((message) => message.id === documentId ? { ...message, usage: mergeUsage(message.usage, [usage]) } : message) : conversation.messages;
+    set({ conversations: { ...get().conversations, [nodeId]: { ...conversation, messages, usage: mergeUsage(conversation.usage, [usage]) } } });
+  },
 
   initConversation: (nodeId) => {
     if (get().conversations[nodeId]) return;
@@ -122,7 +132,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const existing = conv.messages.findIndex((m) => m.id === message.id);
     const messages =
       existing >= 0
-        ? conv.messages.map((m, i) => (i === existing ? { ...m, ...message } : m))
+        ? conv.messages.map((m, i) => (i === existing ? { ...m, ...message, ...(m.usage?.length || message.usage?.length ? { usage: mergeUsage(message.usage, m.usage) } : {}) } : m))
         : [...conv.messages, message];
     set({
       conversations: {

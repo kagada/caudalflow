@@ -10,10 +10,29 @@ function response(parts: string[]) {
 }
 
 function callbacks() {
-  return { onToken: vi.fn(), onReasoning: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
+  return { onToken: vi.fn(), onReasoning: vi.fn(), onUsage: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
 }
 
 describe('OpenAI-compatible streaming', () => {
+  it.each([
+    { prompt_tokens: 120, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 80 } },
+    { prompt_tokens: 120, completion_tokens: 20, prompt_cache_hit_tokens: 80 },
+  ])('reads provider usage from a trailing chunk with empty choices', async (usage) => {
+    const cb = callbacks();
+    await readOpenAIStream(response(['data:{"choices":[{"delta":{"content":"答案"}}]}\n',
+      `data:${JSON.stringify({ choices: [], usage })}\ndata:[DONE]\n`]), cb, new AbortController().signal);
+    expect(cb.onUsage).toHaveBeenCalledWith({ inputTokens: 120, outputTokens: 20, cachedInputTokens: 80 });
+    expect(cb.onUsage.mock.invocationCallOrder[0]).toBeLessThan(cb.onDone.mock.invocationCallOrder[0]);
+  });
+
+  it('reports usage even when output ended at the model limit', async () => {
+    const cb = callbacks();
+    await expect(readOpenAIStream(response([
+      'data:{"choices":[{"delta":{"content":"部分回答"},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}\ndata:[DONE]\n',
+    ]), cb, new AbortController().signal)).rejects.toThrow('最大输出令牌数');
+    expect(cb.onUsage).toHaveBeenCalledWith({ inputTokens: 10, outputTokens: 5 });
+  });
+
   it('separates DeepSeek thinking from the final answer and accepts data without a space', async () => {
     const cb = callbacks();
     await readOpenAIStream(response([

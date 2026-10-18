@@ -31,7 +31,7 @@ export function useNodeCopilotChat(
         }),
       );
 
-      const resolvedReferences = await Promise.all(references.map(resolveReference));
+      const resolvedReferences = await Promise.all(references.map((reference) => resolveReference(reference, { nodeId })));
       const store = useChatStore.getState();
       if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || !store.conversations[nodeId]) throw new Error('会话已切换或删除，请重新发送');
       if (store.conversations[nodeId].isStreaming) throw new Error('请先等待回复完成或停止生成');
@@ -53,7 +53,7 @@ export function useNodeCopilotChat(
 
       prepareFirstQuestion(nodeId, messages.filter((message) => message.kind === 'reference').map((message) => message.content).join('\n\n') || systemPrompt);
 
-      store.addMessage(nodeId, 'assistant', '');
+      const answerId = store.addMessage(nodeId, 'assistant', '');
       store.setStreaming(nodeId, true);
 
       abortRef.current?.abort();
@@ -80,6 +80,7 @@ export function useNodeCopilotChat(
           },
         },
         controller.signal,
+        { nodeId, documentId: answerId },
       );
     },
     [nodeId, topic, parentNodeId, parentNodeIds, mergeAction],

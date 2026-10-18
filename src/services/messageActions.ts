@@ -35,5 +35,5 @@ export function reviseMessage(nodeId: string, messageId: string, prompt: string 
     onReasoning: (token) => { reasoning += token; update(); },
     onDone: () => { signal.removeEventListener('abort', abort); useChatStore.getState().setStreaming(nodeId, false); },
     onError: (error) => { signal.removeEventListener('abort', abort); content = `${content || original?.content || ''}\n\n**错误：** ${error.message}`; update(); useChatStore.getState().setStreaming(nodeId, false); },
-  }, signal);
+  }, signal, { nodeId, documentId: target.id });
 }

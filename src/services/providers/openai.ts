@@ -3,7 +3,7 @@ import type { ChatMessage, LLMConfig } from '../../types/chat';
 import { resolveOpenAIEndpoint } from './endpoints';
 import { readOpenAIStream } from './openaiStream';
 import { thinkingParameters } from './thinking';
-import { apiFetch } from './transport';
+import { usageAwareChatFetch } from './transport';
 
 function toOpenAIMessages(messages: ChatMessage[]) {
   return messages.map((m, index) => {
@@ -57,13 +57,14 @@ export const OpenAIProvider: LLMProvider = {
       temperature: config.temperature,
       max_completion_tokens: config.maxTokens,
       stream: true,
+      stream_options: { include_usage: true },
       ...thinkingParameters(config.endpoint, config.thinkingMode),
     };
 
     try {
       // 本地使用直接访问设置中的接口，不再要求额外启动后端代理。
       if (!config.model.trim()) throw new Error('Please enter a model ID in Settings.');
-      const response = await apiFetch(resolveOpenAIEndpoint(config.endpoint, 'chat/completions'), {
+      const response = await usageAwareChatFetch(resolveOpenAIEndpoint(config.endpoint, 'chat/completions'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -32,7 +32,8 @@ export function startReferenceConversation(nodeId: string, question: string, ref
   };
   void (async () => {
     try {
-      const resolved = await Promise.all(references.map((reference) => resolveReference(reference)));
+      const resolved = await Promise.all(references.map((reference) => resolveReference(reference, { nodeId,
+        documentId: store.getMessages(nodeId).find((message) => message.reference?.id === reference.id)?.id })));
       if (!current()) { tracked.release(); return; }
       const messages = useChatStore.getState().getMessages(nodeId).map((message) => {
         if (message.referenceForId !== questionId || !message.reference) return message;
@@ -45,7 +46,7 @@ export function startReferenceConversation(nodeId: string, question: string, ref
         onReasoning: (token) => { if (current()) useChatStore.getState().appendReasoningToLastMessage(nodeId, token); },
         onDone: finish,
         onError: (error) => { if (current()) useChatStore.getState().appendToLastMessage(nodeId, `\n\n**错误：** ${error.message}`); finish(); },
-      }, controller.signal);
+      }, controller.signal, { nodeId, documentId: answerId });
     } catch (error) {
       if (current()) useChatStore.getState().appendToLastMessage(nodeId, `\n\n**引用准备失败：** ${error instanceof Error ? error.message : String(error)}`);
       finish();

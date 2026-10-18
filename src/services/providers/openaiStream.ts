@@ -1,4 +1,5 @@
 import type { StreamCallbacks } from './types';
+import { openAIUsage } from './usage';
 
 // 兼容标准 SSE 的空格、分片和末尾无换行，并分别传递思考与正文。
 export async function readOpenAIStream(response: Response, callbacks: StreamCallbacks, signal: AbortSignal): Promise<void> {
@@ -18,6 +19,8 @@ export async function readOpenAIStream(response: Response, callbacks: StreamCall
     if (data === '[DONE]') return true;
     const parsed = JSON.parse(data);
     if (parsed.error) throw new Error(parsed.error.message || '接口返回了流式错误。');
+    const usage = openAIUsage(parsed.usage);
+    if (usage) callbacks.onUsage?.(usage);
     const choice = parsed.choices?.[0];
     const delta = choice?.delta;
     if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {

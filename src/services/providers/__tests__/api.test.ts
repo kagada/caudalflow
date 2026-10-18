@@ -72,8 +72,23 @@ describe('custom API configuration', () => {
     const callbacks = { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
     await provider.streamChat([{ id: '1', role: 'user', content: '你好', timestamp: 0 }], config, callbacks, new AbortController().signal);
     expect(request).toHaveBeenCalledWith('https://example.com/gateway/v2/chat/completions', expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-key' }) }));
+    expect(JSON.parse(request.mock.calls[0][1].body).stream_options).toEqual({ include_usage: true });
     expect(callbacks.onToken).toHaveBeenCalledWith('你好');
     expect(callbacks.onDone).toHaveBeenCalledTimes(1);
     expect(callbacks.onError).not.toHaveBeenCalled();
+  });
+
+  it('continues chatting when a compatible endpoint rejects usage options', async () => {
+    const request = vi.fn().mockResolvedValueOnce(Response.json({ error: { message: 'Unsupported parameter: stream_options' } }, { status: 400 }))
+      .mockResolvedValueOnce(new Response('data:{"choices":[{"delta":{"content":"答案"}}]}\ndata:[DONE]\n'));
+    vi.stubGlobal('fetch', request);
+    const config = { providerId: 'custom', endpoint: 'https://example.com/v1', model: 'test', apiKey: '', temperature: 0.7, maxTokens: 100 } as LLMConfig;
+    const callbacks = { onToken: vi.fn(), onUsage: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
+    await CustomProvider.streamChat([], config, callbacks, new AbortController().signal);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(request.mock.calls[1][1].body).stream_options).toBeUndefined();
+    expect(callbacks.onToken).toHaveBeenCalledWith('答案');
+    expect(callbacks.onUsage).not.toHaveBeenCalled();
+    expect(callbacks.onDone).toHaveBeenCalledTimes(1);
   });
 });

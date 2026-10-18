@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceData } from '../../../src/types/workspace';
+import type { RequestUsage } from '../../../src/types/chat';
 import { sampleReference } from '../../../src/services/__tests__/referenceFixtures';
 
 const require = createRequire(import.meta.url);
@@ -22,6 +23,48 @@ describe('SQLite workspace and independent local history', () => {
     workspace = new WorkspaceDatabase(join(root, 'workspace.caudalflow'), join(root, 'personal'), { create: true, metadata: { id: 'w1', name: '测试', createdAt: 1, updatedAt: 1 } });
   });
   afterEach(() => { workspace?.close(); rmSync(root, { recursive: true, force: true }); });
+
+  it('persists optional JSON request usage across versions, reload and deletion without creating content history', () => {
+    const data = example(); workspace.save(data);
+    const originalVersion = workspace.load().data.conversations.c1.messages[1].versionId;
+    expect(workspace.db.prepare("SELECT usage_json FROM documents WHERE id='a1'").get().usage_json).toBeNull();
+    const historyCount = workspace.listHistory().length;
+    const first: RequestUsage = { id: 'req1', purpose: 'answer', model: 'test', providerId: 'custom', createdAt: 1, status: 'complete', inputTokens: 100, outputTokens: 20, cachedInputTokens: 80 };
+    data.conversations.c1.messages[1].usage = [first];
+    workspace.save(data);
+    expect(workspace.listHistory()).toHaveLength(historyCount);
+    expect(workspace.listVersions('a1')).toHaveLength(1);
+    const second = { ...first, id: 'req2', inputTokens: 200 };
+    data.conversations.c1.messages[1].content = '重答'; data.conversations.c1.messages[1].usage = [second]; workspace.save(data);
+    const secondVersion = workspace.load().data.conversations.c1.messages[1].versionId;
+    const expectedUsage = [{ ...first, versionId: originalVersion }, { ...second, versionId: secondVersion }];
+    const selected = workspace.readVersion('a1', originalVersion);
+    expect(selected.usage).toEqual(expectedUsage);
+    data.conversations.c1.messages[1] = selected; workspace.save(data);
+    expect(workspace.load().data.conversations.c1.usage).toEqual(expectedUsage);
+    data.conversations.c1.messages.pop(); workspace.save(data);
+    const filename = workspace.filename; workspace.close(); workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
+    expect(workspace.load().data.conversations.c1.usage).toEqual(expectedUsage);
+    expect(workspace.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('marks saved pending requests interrupted when reopening', () => {
+    const data = example(); data.conversations.c1.usage = [{ id: 'partial', purpose: 'title', model: 'test', providerId: 'custom', createdAt: 1, status: 'pending' }];
+    workspace.save(data);
+    expect(workspace.load().data.conversations.c1.usage[0].status).toBe('interrupted');
+    expect(workspace.load().data.conversations.c1.usage[0].inputTokens).toBeUndefined();
+  });
+
+  it('adds optional usage fields to a third-version file while retaining content and versions', () => {
+    workspace.save(example()); const filename = workspace.filename; const versions = workspace.listVersions('a1'); workspace.close();
+    const previous = new DatabaseSync(filename);
+    previous.exec('ALTER TABLE documents DROP COLUMN usage_json; ALTER TABLE conversations DROP COLUMN usage_json; PRAGMA user_version=3;'); previous.close();
+    workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
+    expect(workspace.load().data.conversations.c1.messages[1].content).toBe('原回答');
+    expect(workspace.listVersions('a1')).toEqual(versions);
+    expect(workspace.db.prepare('PRAGMA user_version').get().user_version).toBe(SCHEMA_VERSION);
+    expect(workspace.db.prepare("SELECT usage_json FROM documents WHERE id='a1'").get().usage_json).toBeNull();
+  });
 
   it('keeps a reference as an independent versioned document after its source conversation is deleted', () => {
     const data = example(); const reference = sampleReference();

@@ -1,5 +1,6 @@
 import type { LLMProvider, StreamCallbacks } from './types';
 import type { ChatMessage, LLMConfig } from '../../types/chat';
+import { anthropicUsage } from './usage';
 
 function toAnthropicMessages(messages: ChatMessage[]) {
   return messages.map((m) => {
@@ -89,6 +90,8 @@ export const AnthropicProvider: LLMProvider = {
 
           try {
             const parsed = JSON.parse(data);
+            const usage = anthropicUsage(parsed.type === 'message_start' ? parsed.message?.usage : parsed.usage);
+            if (usage) callbacks.onUsage?.(usage);
 
             if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
               callbacks.onToken(parsed.delta.text);

@@ -12,6 +12,7 @@ import type { ChatMessage } from '../../types/chat';
 import type { ReferenceSource } from '../../types/chat';
 import { cancelAllGenerations } from '../streamLifecycle';
 import { hasPersistedFlowChanges } from '../../utils/flowPersistence';
+import { mergeUsage } from '../../utils/tokenUsage';
 
 interface StorageStatus {
   ready: boolean;
@@ -63,11 +64,14 @@ function acceptSavedVersions(id: string, submitted: WorkspaceData, result: Saved
   const conversations = Object.fromEntries(Object.entries(current).map(([nodeId, conversation]) => {
     const messages = conversation.messages.map((message) => {
       const sent = submitted.conversations[nodeId]?.messages.find((item) => item.id === message.id);
-      return !conversation.isStreaming && sent && sent.content === message.content && sent.reasoning === message.reasoning && JSON.stringify(sent.images) === JSON.stringify(message.images) && result.versions?.[message.id] && result.versions[message.id] !== message.versionId ? { ...message, versionId: result.versions[message.id] } : message;
+      const usage = mergeUsage(result.documentUsage?.[message.id], message.usage);
+      const current = usage.length && JSON.stringify(usage) !== JSON.stringify(message.usage) ? { ...message, usage } : message;
+      return !conversation.isStreaming && sent && sent.content === message.content && sent.reasoning === message.reasoning && JSON.stringify(sent.images) === JSON.stringify(message.images) && result.versions?.[message.id] && result.versions[message.id] !== message.versionId ? { ...current, versionId: result.versions[message.id] } : current;
     });
-    const different = messages.some((message, index) => message !== conversation.messages[index]);
+    const usage = mergeUsage(result.usage?.[nodeId], conversation.usage);
+    const different = messages.some((message, index) => message !== conversation.messages[index]) || Boolean(usage.length && JSON.stringify(usage) !== JSON.stringify(conversation.usage));
     changed ||= different;
-    return [nodeId, different ? { ...conversation, messages } : conversation];
+    return [nodeId, different ? { ...conversation, messages, ...(usage.length ? { usage } : {}) } : conversation];
   }));
   if (!changed) return;
   applying = true;

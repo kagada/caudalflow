@@ -33,6 +33,6 @@ export function prepareFirstQuestion(nodeId: string, context: string): void {
     if (!stillCurrent()) return;
     generateTitle(titleContent || '请根据所附图片概括主题', context, (title) => {
       if (stillCurrent()) useFlowStore.getState().updateNodeData(nodeId, { topic: title, titleSource: 'generated' });
-    });
+    }, { nodeId });
   });
 }

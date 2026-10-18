@@ -1,4 +1,5 @@
 import type { WorkspaceData, WorkspaceMetadata } from '../../types/workspace';
+import type { RequestUsage } from '../../types/chat';
 
 export interface StoredWorkspace {
   metadata: WorkspaceMetadata;
@@ -17,7 +18,7 @@ export interface HistoryDetail extends HistoryEntry { before: WorkspaceData; aft
 export interface HistorySelection { documentIds?: string[]; attributesOnly?: boolean; relationIds?: string[] }
 
 export interface DocumentVersion { id: number; createdAt: number; preview: string }
-export interface SavedWorkspace { revision: number; versions?: Record<string, number> }
+export interface SavedWorkspace { revision: number; versions?: Record<string, number>; usage?: Record<string, RequestUsage[]>; documentUsage?: Record<string, RequestUsage[]> }
 
 // 上层只提交完整操作和读取结果，不依赖 Electron 路径或 SQLite 事务对象。
 export interface WorkspaceStorage {

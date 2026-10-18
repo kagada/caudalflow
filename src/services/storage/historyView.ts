@@ -21,8 +21,8 @@ const preview = (text: string) => text.replace(/\s+/g, ' ').slice(0, 60) || '空
 
 // 版本 ID 变化本身不是正文差异；附件、思考和关联变化则不能被忽略。
 function messageValue(message: ChatMessage) {
-  const { versionId, previousVersions, ...content } = message;
-  void versionId; void previousVersions;
+  const { versionId, previousVersions, usage, ...content } = message;
+  void versionId; void previousVersions; void usage;
   return { ...content, kind: content.kind ?? 'message' };
 }
 

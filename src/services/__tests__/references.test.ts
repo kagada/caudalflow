@@ -81,6 +81,20 @@ describe('independent reference snapshots', () => {
     expect(provider.streamChat).toHaveBeenCalledTimes(2);
     expect(provider.streamChat.mock.calls[1][0][0].content).toContain('压缩至约 500 字，最多 1000 字');
   });
+
+  it('records summary and compression requests in the target workspace and reuses cached summaries', async () => {
+    const reference = await createReference('parent', undefined, { deferSummary: true });
+    useWorkspaceStore.setState({ activeWorkspaceId: 'w2' }); useChatStore.getState().initConversation('target');
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onUsage({ inputTokens: 100, outputTokens: 1001, cachedInputTokens: 50 }); callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onUsage({ inputTokens: 1001, outputTokens: 500 }); callbacks.onToken('摘'.repeat(500)); callbacks.onDone(); });
+    await resolveReference(reference, { nodeId: 'target' });
+    await resolveReference(reference, { nodeId: 'target' });
+    const usage = useChatStore.getState().conversations.target.usage!;
+    expect(usage.map((record) => record.purpose)).toEqual(['reference_summary', 'summary_compression']);
+    expect(usage.map((record) => record.inputTokens)).toEqual([100, 1001]);
+    expect(useChatStore.getState().conversations.parent.usage).toBeUndefined();
+    expect(provider.streamChat).toHaveBeenCalledTimes(2);
+  });
   it('summarizes complete documents up to the selected answer and shares the cache across selections', async () => {
     const a = await createReference('parent', [{ documentId: 'a1', text: '第一段知识' }]);
     const b = await createReference('parent', [{ documentId: 'a1', text: '重要结论' }]);

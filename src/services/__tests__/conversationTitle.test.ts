@@ -24,7 +24,7 @@ describe('first question naming', () => {
     useChatStore.getState().addMessage('c1', 'assistant', '');
     useChatStore.getState().setStreaming('c1', true);
     await Promise.resolve();
-    expect(generateTitle).toHaveBeenCalledWith(expect.any(String), '父会话：数据存储结构', expect.any(Function));
+    expect(generateTitle).toHaveBeenCalledWith(expect.any(String), '父会话：数据存储结构', expect.any(Function), { nodeId: 'c1' });
     vi.mocked(generateTitle).mock.calls[0][2]('分支标题命名');
     expect(useFlowStore.getState().nodes[0].data).toMatchObject({ topic: '分支标题命名', titleSource: 'generated' });
     expect(useChatStore.getState().conversations.c1.isStreaming).toBe(true);

@@ -1,5 +1,22 @@
 export type MessageRole = 'user' | 'assistant' | 'system';
 
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+}
+
+// 每次请求独立记账；缓存命中属于输入，缺失字段表示接口未提供。
+export interface RequestUsage extends TokenUsage {
+  id: string;
+  purpose: 'answer' | 'reference_summary' | 'summary_compression' | 'title';
+  providerId: string;
+  model: string;
+  createdAt: number;
+  status: 'pending' | 'complete' | 'failed' | 'interrupted';
+  versionId?: number;
+}
+
 export interface ReferenceSource {
   workspaceId: string;
   conversationId: string;
@@ -29,6 +46,7 @@ export interface ReferenceSelection { documentId: string; text: string; start?: 
 export interface ChatMessage {
   id: string;
   versionId?: number;
+  usage?: RequestUsage[];
   generationStatus?: 'complete' | 'interrupted' | 'failed';
   role: MessageRole;
   content: string;
@@ -52,6 +70,7 @@ export interface Conversation {
   nodeId: string;
   messages: ChatMessage[];
   isStreaming: boolean;
+  usage?: RequestUsage[];
   streamingMessageId?: string;
 }
 

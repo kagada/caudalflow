@@ -5,11 +5,13 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { trackGeneration } from './streamLifecycle';
 import { modelMessages } from './references';
 import { DEFAULT_BUILTIN_PROMPTS } from './builtinPrompts';
+import { trackRequestUsage, type UsageTarget } from './requestUsage';
 
 export function streamChat(
   messages: ChatMessage[],
   callbacks: StreamCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
+  usageTarget?: UsageTarget,
 ) {
   const config = useSettingsStore.getState().llmConfig;
   const provider = getProvider(config.providerId);
@@ -20,19 +22,22 @@ export function streamChat(
   }
 
   const tracked = trackGeneration(signal);
+  const usage = trackRequestUsage(usageTarget, 'answer', config, tracked.controller.signal);
   // 请求取消后不再回调 store，避免历史恢复或撤销后被晚到响应覆盖。
   provider.streamChat(modelMessages(messages), config, {
     onToken: (token) => { if (!tracked.controller.signal.aborted) callbacks.onToken(token); },
     onReasoning: (token) => { if (!tracked.controller.signal.aborted) callbacks.onReasoning?.(token); },
-    onDone: () => { tracked.release(); if (!tracked.controller.signal.aborted) callbacks.onDone(); },
-    onError: (error) => { tracked.release(); if (!tracked.controller.signal.aborted) callbacks.onError(error); },
+    onUsage: (value) => { if (!tracked.controller.signal.aborted) { usage.onUsage(value); callbacks.onUsage?.(value); } },
+    onDone: () => { usage.complete(); tracked.release(); if (!tracked.controller.signal.aborted) callbacks.onDone(); },
+    onError: (error) => { usage.fail(); tracked.release(); if (!tracked.controller.signal.aborted) callbacks.onError(error); },
   }, tracked.controller.signal);
 }
 
 export function generateTitle(
   userMessage: string,
   context: string,
-  onTitle: (title: string) => void
+  onTitle: (title: string) => void,
+  usageTarget?: UsageTarget,
 ): void {
   const config = useSettingsStore.getState().llmConfig;
   const provider = getProvider(config.providerId);
@@ -59,20 +64,23 @@ export function generateTitle(
   let title = '';
   const controller = new AbortController();
   const tracked = trackGeneration(controller.signal);
+  const usage = trackRequestUsage(usageTarget, 'title', titleConfig, tracked.controller.signal);
   provider.streamChat(
     messages,
     titleConfig,
     {
+      onUsage: usage.onUsage,
       onToken: (token) => {
         title += token;
       },
       onDone: () => {
+        usage.complete();
         tracked.release();
         if (tracked.controller.signal.aborted) return;
         const cleaned = title.trim().split(/\r?\n/)[0].replace(/^["'“”]+|["'“”]+$/g, '').trim().slice(0, 60);
         if (cleaned) onTitle(cleaned);
       },
-      onError: () => { tracked.release(); },
+      onError: () => { usage.fail(); tracked.release(); },
     },
     tracked.controller.signal,
   );

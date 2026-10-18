@@ -10,8 +10,8 @@ export function nodeContent(node: ChatNode) {
 }
 
 export function contentKey(data: WorkspaceData): string {
-  return JSON.stringify(canonical({ nodes: data.nodes.map((node) => ({ id: node.id, data: nodeContent(node) })), edges: data.edges.map(({ id, source, target, data }) => ({ id, source, target, data })), conversations: Object.fromEntries(data.nodes.map(({ id }) => [id, (data.conversations[id]?.messages ?? []).map(({ previousVersions, versionId, ...message }) => {
-    void previousVersions; void versionId;
+  return JSON.stringify(canonical({ nodes: data.nodes.map((node) => ({ id: node.id, data: nodeContent(node) })), edges: data.edges.map(({ id, source, target, data }) => ({ id, source, target, data })), conversations: Object.fromEntries(data.nodes.map(({ id }) => [id, (data.conversations[id]?.messages ?? []).map(({ previousVersions, versionId, usage, ...message }) => {
+    void previousVersions; void versionId; void usage;
     return { ...message, kind: message.kind ?? 'message' };
   })])) }));
 }

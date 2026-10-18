@@ -37,6 +37,16 @@ describe('message revision', () => {
     expect(useChatStore.getState().getMessages('node')[1].content).toBe('替换回答');
   });
 
+  it('uses the same input messages for repeated regeneration of the same answer', () => {
+    reviseMessage('node', 'a1', undefined, new AbortController().signal);
+    const first = vi.mocked(streamChat).mock.calls[0];
+    first[1].onToken('第一次重答'); first[1].onDone();
+    reviseMessage('node', 'a1', undefined, new AbortController().signal);
+    const second = vi.mocked(streamChat).mock.calls[1];
+    const input = (messages: typeof first[0]) => messages.map(({ role, content }) => ({ role, content }));
+    expect(input(second[0])).toEqual(input(first[0]));
+  });
+
   it('includes a custom rewrite prompt and the original answer', () => {
     reviseMessage('node', 'a1', '保留例子', new AbortController().signal);
     expect(vi.mocked(streamChat).mock.calls[0][0].at(-1)?.content).toContain('保留例子');

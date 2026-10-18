@@ -8,6 +8,7 @@ import { isDesktopStorage } from '../../services/storage/desktop';
 import { openReferenceSourceWorkspace } from '../../services/storage/runtime';
 import { locateReferenceMessage } from '../../services/referenceNavigation';
 import { effectiveReferenceSources } from '../../utils/referenceHighlights';
+import { UsageStatistics } from './UsageStatistics';
 
 // 来源失效时打开独立原文快照，不切换当前文档版本，也不影响已有问答。
 export function ReferenceBubble({ message }: { message: ChatMessage }) {
@@ -38,6 +39,7 @@ export function ReferenceBubble({ message }: { message: ChatMessage }) {
         <p className="mt-3 whitespace-pre-wrap break-words leading-6">{reference.summaryInput ? '摘要尚未生成，原文和背景快照已保存。' : reference.summary}</p>
         <blockquote className="mt-3 whitespace-pre-wrap break-words border-l-2 border-border-hover pl-3 leading-6">{reference.quote}</blockquote>
       </details>
+      <UsageStatistics usage={message.usage} label="本引用累计" />
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-text-muted">{sources.map((source, index) => <button key={index} className="max-w-full truncate hover:text-text-primary hover:underline" onClick={(event) => { event.stopPropagation(); void locate(source); }} title="定位原回答；原版本不可用时查看引用快照">来源：{source.title}{sources.length > 1 ? ` · ${index + 1}` : ''}</button>)}</div>
     </div>
     {snapshot && createPortal(<div role="dialog" aria-modal="true" aria-label="引用来源快照" className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/50 p-6" onPointerDown={(event) => event.stopPropagation()}>

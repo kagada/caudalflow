@@ -5,10 +5,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const APPLICATION_ID = 0x43464c57;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const EMPTY = () => ({ nodes: [], edges: [], conversations: {} });
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, canonical(value[key])])) : value;
+
+// 请求用量按 ID 合并，内容恢复时保留已经发生的消耗。
+const mergeUsage = (...lists) => {
+  const records = new Map();
+  for (const list of lists) for (const record of list ?? []) {
+    const previous = records.get(record.id);
+    records.set(record.id, previous && previous.status !== 'pending' && record.status === 'pending' ? previous : { ...previous, ...record });
+  }
+  return [...records.values()];
+};
+const usageJson = (records) => records.length ? JSON.stringify(records) : null;
+const readUsage = (json) => JSON.parse(json ?? '[]').map((record) => record.status === 'pending' ? { ...record, status: 'interrupted' } : record);
 
 // 版本只比较可变化的内容，类型固定归文档，不为正文额外保存指纹。
 const versionContent = (message) => canonical({
@@ -61,8 +73,8 @@ function contentOf(data) {
       return { id: node.id, data: { ...content, done: Boolean(content.done) } };
     }),
     edges: data.edges.map(({ id, source, target, data }) => ({ id, source, target, data })),
-    conversations: Object.fromEntries(data.nodes.map(({ id }) => [id, (data.conversations[id]?.messages ?? []).map(({ previousVersions, versionId, ...message }) => {
-      void previousVersions; void versionId;
+    conversations: Object.fromEntries(data.nodes.map(({ id }) => [id, (data.conversations[id]?.messages ?? []).map(({ previousVersions, versionId, usage, ...message }) => {
+      void previousVersions; void versionId; void usage;
       return { ...message, kind: message.kind ?? 'message' };
     })])),
   };
@@ -103,9 +115,16 @@ class WorkspaceDatabase {
       const appId = this.db.prepare('PRAGMA application_id').get().application_id;
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
       if (!options.create && appId !== APPLICATION_ID) throw new Error('这不是支持的 CaudalFlow 工作区文件');
-      if (!options.create && version !== SCHEMA_VERSION) throw new Error('工作区文件版本不受支持，请新建工作区或选择新版文件');
+      if (!options.create && version !== SCHEMA_VERSION && version !== 3) throw new Error('工作区文件版本不受支持，请新建工作区或选择新版文件');
       this.db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;');
       if (options.create) this.initialize(options.metadata);
+      else if (version === 3) {
+        // 第三版只追加可空的统计字段，已有正文、版本和引用原位保留。
+        this.db.exec(`BEGIN IMMEDIATE;
+          ALTER TABLE conversations ADD COLUMN usage_json TEXT;
+          ALTER TABLE documents ADD COLUMN usage_json TEXT;
+          PRAGMA user_version=${SCHEMA_VERSION}; COMMIT;`);
+      }
       this.metadata = JSON.parse(this.db.prepare('SELECT value FROM workspace_meta WHERE key=?').get('metadata').value);
       fs.mkdirSync(historyDirectory, { recursive: true });
       // ATTACH 配合回滚日志，让工作区和独立历史参与同一事务；不使用破坏跨库原子性的 WAL。
@@ -130,7 +149,7 @@ class WorkspaceDatabase {
     this.db.exec(`BEGIN IMMEDIATE;
       PRAGMA application_id=${APPLICATION_ID}; PRAGMA user_version=${SCHEMA_VERSION};
       CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE conversations (id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, topic TEXT NOT NULL, label TEXT, done INTEGER NOT NULL, color TEXT, metadata_json TEXT NOT NULL);
+      CREATE TABLE conversations (id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, topic TEXT NOT NULL, label TEXT, done INTEGER NOT NULL, color TEXT, metadata_json TEXT NOT NULL, usage_json TEXT);
       CREATE TABLE conversation_layouts (
         conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
         x REAL NOT NULL, y REAL NOT NULL, width REAL NOT NULL CHECK(width>0), height REAL NOT NULL CHECK(height>0),
@@ -141,7 +160,7 @@ class WorkspaceDatabase {
         kind TEXT NOT NULL DEFAULT 'message' CHECK(kind IN ('message','reference')),
         content TEXT NOT NULL, reasoning TEXT, created_at INTEGER NOT NULL,
         current_version_id INTEGER REFERENCES document_versions(id) DEFERRABLE INITIALLY DEFERRED,
-        reply_to_id TEXT, triggered_by TEXT, reference_for_id TEXT, generation_status TEXT,
+        reply_to_id TEXT, triggered_by TEXT, reference_for_id TEXT, generation_status TEXT, usage_json TEXT,
         UNIQUE(conversation_id,position));
       CREATE TABLE document_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -191,7 +210,8 @@ class WorkspaceDatabase {
     for (const row of this.db.prepare('SELECT c.*,l.x,l.y,l.width,l.height,l.z_index,l.collapsed,l.minimized FROM conversations c JOIN conversation_layouts l ON l.conversation_id=c.id ORDER BY c.ordinal').all()) {
       data.nodes.push({ id: row.id, type: 'chat', position: { x: row.x, y: row.y }, style: { width: row.width, height: row.height }, zIndex: row.z_index,
         data: { ...JSON.parse(row.metadata_json), collapsed: Boolean(row.collapsed), minimized: Boolean(row.minimized), maximized: false, topic: row.topic, ...(row.label !== null ? { label: row.label } : {}), ...(row.color !== null ? { color: row.color } : {}), done: Boolean(row.done) } });
-      data.conversations[row.id] = { nodeId: row.id, messages: [], isStreaming: false };
+      const usage = readUsage(row.usage_json);
+      data.conversations[row.id] = { nodeId: row.id, messages: [], isStreaming: false, ...(usage.length ? { usage } : {}) };
     }
     for (const row of this.db.prepare('SELECT *,current_version_id AS version_id FROM documents ORDER BY conversation_id,position').all()) {
       const message = this.messageFromRow(row, row.id, row.created_at);
@@ -210,6 +230,8 @@ class WorkspaceDatabase {
   // 引用主体和来源独立读取，来源被删除后，保留的原文和图片仍可使用。
   messageFromRow(row, documentId, timestamp) {
     const message = { id: documentId, role: row.role, kind: row.kind, timestamp, versionId: row.version_id, content: row.content };
+    const usage = readUsage(row.usage_json);
+    if (usage.length) message.usage = usage;
     for (const [column, property] of [['reasoning', 'reasoning'], ['reply_to_id', 'replyToId'], ['triggered_by', 'triggeredBy'], ['reference_for_id', 'referenceForId'], ['generation_status', 'generationStatus']]) {
       if (row[column] !== null) message[property] = row[column];
     }
@@ -291,7 +313,9 @@ class WorkspaceDatabase {
         const { topic, label: nodeLabel, done, color, collapsed, minimized, maximized, ...metadata } = node.data;
         void maximized;
         const id = node.id;
-        this.db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ordinal=excluded.ordinal,topic=excluded.topic,label=excluded.label,done=excluded.done,color=excluded.color,metadata_json=excluded.metadata_json').run(id, ordinal, topic, nodeLabel ?? null, done ? 1 : 0, color ?? null, JSON.stringify(metadata));
+        const previousUsage = this.db.prepare('SELECT usage_json FROM conversations WHERE id=?').get(id)?.usage_json;
+        const usage = mergeUsage(JSON.parse(previousUsage ?? '[]'), data.conversations[id]?.usage, ...(data.conversations[id]?.messages ?? []).map((message) => message.usage));
+        this.db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ordinal=excluded.ordinal,topic=excluded.topic,label=excluded.label,done=excluded.done,color=excluded.color,metadata_json=excluded.metadata_json,usage_json=excluded.usage_json').run(id, ordinal, topic, nodeLabel ?? null, done ? 1 : 0, color ?? null, JSON.stringify(metadata), usageJson(usage));
         const width = Number.isFinite(node.style?.width) && node.style.width > 0 ? node.style.width : 400;
         const height = Number.isFinite(node.style?.height) && node.style.height > 0 ? node.style.height : 500;
         this.db.prepare(`INSERT INTO conversation_layouts VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET
@@ -303,7 +327,7 @@ class WorkspaceDatabase {
         for (const row of this.db.prepare('SELECT id FROM documents WHERE conversation_id=?').all(id)) if (!currentDocuments.has(row.id)) this.db.prepare('DELETE FROM documents WHERE id=?').run(row.id);
         messages.forEach((message, index) => {
           this.db.prepare('INSERT INTO documents(id,conversation_id,position,role,kind,content,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET role=excluded.role').run(message.id, id, index, message.role, message.kind ?? 'message', '', message.timestamp);
-          const owner = this.db.prepare('SELECT conversation_id,kind,current_version_id FROM documents WHERE id=?').get(message.id);
+          const owner = this.db.prepare('SELECT conversation_id,kind,current_version_id,usage_json FROM documents WHERE id=?').get(message.id);
           if (owner.conversation_id !== id) throw new Error('同一文档不能属于两个会话');
           if (owner.kind !== (message.kind ?? 'message')) throw new Error('已有文档不能改变类型');
           for (const old of message.previousVersions ?? []) this.version(message.id, { ...message, ...old, images: message.images ?? [] }, old.timestamp);
@@ -318,8 +342,15 @@ class WorkspaceDatabase {
             this.db.prepare('DELETE FROM generation_drafts WHERE document_id=?').run(message.id);
           }
           const saved = this.db.prepare('SELECT * FROM document_versions WHERE id=?').get(selectedVersion);
-          this.db.prepare('UPDATE documents SET position=?,content=?,reasoning=?,current_version_id=?,reply_to_id=?,triggered_by=?,reference_for_id=?,generation_status=? WHERE id=?').run(
-            index, saved.content, saved.reasoning, selectedVersion, saved.reply_to_id, saved.triggered_by, saved.reference_for_id, saved.generation_status, message.id);
+          let documentUsage = mergeUsage(JSON.parse(owner.usage_json ?? '[]'), message.usage);
+          const latestAnswer = documentUsage.findLast((record) => record.purpose === 'answer');
+          // 完成的回答用量绑定实际保存版本，重生成累计与版本展示分别读取。
+          if (!generating && latestAnswer && latestAnswer.versionId === undefined && latestAnswer.status !== 'pending'
+            && (latestAnswer.status !== 'interrupted' || selectedVersion !== owner.current_version_id)) {
+            documentUsage = documentUsage.map((record) => record.id === latestAnswer.id ? { ...record, versionId: selectedVersion } : record);
+          }
+          this.db.prepare('UPDATE documents SET position=?,content=?,reasoning=?,current_version_id=?,reply_to_id=?,triggered_by=?,reference_for_id=?,generation_status=?,usage_json=? WHERE id=?').run(
+            index, saved.content, saved.reasoning, selectedVersion, saved.reply_to_id, saved.triggered_by, saved.reference_for_id, saved.generation_status, usageJson(documentUsage), message.id);
         });
       });
       data.edges.forEach((edge, ordinal) => {
@@ -371,7 +402,9 @@ class WorkspaceDatabase {
       this.db.prepare('UPDATE workspace_meta SET value=? WHERE key=?').run(JSON.stringify(this.metadata), 'metadata');
       this.db.exec('COMMIT');
       const versions = Object.fromEntries(this.db.prepare('SELECT id,current_version_id FROM documents').all().map((row) => [row.id, row.current_version_id]));
-      return { revision, versions };
+      const usage = Object.fromEntries(this.db.prepare('SELECT id,usage_json FROM conversations').all().map((row) => [row.id, JSON.parse(row.usage_json ?? '[]')]));
+      const documentUsage = Object.fromEntries(this.db.prepare('SELECT id,usage_json FROM documents').all().map((row) => [row.id, JSON.parse(row.usage_json ?? '[]')]));
+      return { revision, versions, usage, documentUsage };
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
@@ -438,7 +471,7 @@ class WorkspaceDatabase {
   // 切换版本只读取已保存结果，由上层内容操作选择它，不重新请求模型。
   readVersion(documentId, versionId) {
     if (!Number.isSafeInteger(versionId) || versionId <= 0) throw new Error('文档版本 ID 无效');
-    const row = this.db.prepare('SELECT d.role,d.kind,d.created_at AS document_created_at,v.*,v.id AS version_id FROM document_versions v JOIN documents d ON d.id=v.document_id WHERE v.document_id=? AND v.id=?').get(documentId, versionId);
+    const row = this.db.prepare('SELECT d.role,d.kind,d.usage_json,d.created_at AS document_created_at,v.*,v.id AS version_id FROM document_versions v JOIN documents d ON d.id=v.document_id WHERE v.document_id=? AND v.id=?').get(documentId, versionId);
     if (!row) throw new Error('文档版本不存在');
     return this.messageFromRow(row, documentId, row.document_created_at);
   }

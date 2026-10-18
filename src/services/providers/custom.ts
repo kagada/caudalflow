@@ -3,7 +3,7 @@ import type { ChatMessage, LLMConfig } from '../../types/chat';
 import { resolveOpenAIEndpoint } from './endpoints';
 import { readOpenAIStream } from './openaiStream';
 import { thinkingParameters } from './thinking';
-import { apiFetch } from './transport';
+import { usageAwareChatFetch } from './transport';
 
 function toOpenAIMessages(messages: ChatMessage[]) {
   return messages.map((m) => {
@@ -42,13 +42,14 @@ export const CustomProvider: LLMProvider = {
       temperature: config.temperature,
       max_tokens: config.maxTokens,
       stream: true,
+      stream_options: { include_usage: true },
       ...thinkingParameters(config.endpoint, config.thinkingMode),
     };
 
     try {
       if (!config.model.trim()) throw new Error('Please enter a model ID in Settings.');
       const chatUrl = resolveOpenAIEndpoint(config.endpoint, 'chat/completions');
-      const response = await apiFetch(chatUrl, {
+      const response = await usageAwareChatFetch(chatUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
