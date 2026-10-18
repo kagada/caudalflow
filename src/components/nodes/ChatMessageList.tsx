@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAutoScroll } from '../../hooks/useAutoScroll';
 import { useTextSelection, selectionDocuments } from '../../hooks/useTextSelection';
-import type { ReferenceSelection, RequestUsage } from '../../types/chat';
+import type { ReferenceSelection } from '../../types/chat';
 import { createReference } from '../../services/references';
 import { copyReference } from '../../services/referenceClipboard';
 import { ChatMessage } from './ChatMessage';
@@ -17,7 +17,6 @@ import { DocumentVersions } from './DocumentVersions';
 import { UsageStatistics } from './UsageStatistics';
 import { isDesktopStorage } from '../../services/storage/desktop';
 import { buildBacklinks, selectBacklinkInputs } from '../../utils/referenceBacklinks';
-import { answerUsage } from '../../utils/tokenUsage';
 
 interface ChatMessageListProps {
   nodeId: string;
@@ -37,20 +36,6 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
     () => showSystemPrompts ? allMessages : allMessages.filter((m) => m.role !== 'system' || m.kind === 'reference'),
     [allMessages, showSystemPrompts]
   );
-  // 每个提问统一使用其对应回答的请求用量，首问的标题费用留在会话累计中。
-  const questionUsage = useMemo(() => {
-    const records = new Map<string, RequestUsage | undefined>();
-    const answers = new Map(allMessages.filter((message) => message.role === 'assistant' && message.replyToId).map((message) => [message.replyToId!, message]));
-    for (let index = 0; index < allMessages.length; index++) {
-      const question = allMessages[index];
-      if (question.role !== 'user') continue;
-      const following = allMessages[index + 1];
-      const answer = answers.get(question.id)
-        ?? (following?.role === 'assistant' && !following.replyToId ? following : undefined);
-      records.set(question.id, answerUsage(answer, isStreaming && answer?.id === (streamingMessageId ?? allMessages.at(-1)?.id)));
-    }
-    return records;
-  }, [allMessages, isStreaming, streamingMessageId]);
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const backlinkInputs = useChatStore(useShallow((s) => selectBacklinkInputs(s.conversations, workspaceId ?? '', nodeId)));
   const backlinks = useMemo(() => buildBacklinks(backlinkInputs, workspaceId ?? '', nodeId), [backlinkInputs, workspaceId, nodeId]);
@@ -109,7 +94,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         ) : (
           <div className="py-3 space-y-2">
             {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} backlinks={backlinks} questionUsage={questionUsage.get(msg.id)} isStreaming={isStreaming && msg.id === (streamingMessageId ?? allMessages.at(-1)?.id)} />
+              <ChatMessage key={msg.id} message={msg} backlinks={backlinks} isStreaming={isStreaming && msg.id === (streamingMessageId ?? allMessages.at(-1)?.id)} />
             ))}
           </div>
         )}

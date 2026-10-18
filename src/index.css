@@ -120,8 +120,8 @@ html, body, #root {
   transition: transform 300ms ease-out;
 }
 
-.react-flow__node .select-text,
-.react-flow__node .select-text * {
+/* 正文允许选择，子元素保留各自的选择规则。 */
+.react-flow__node .select-text {
   user-select: text;
   -webkit-user-select: text;
 }

@@ -12,7 +12,7 @@ vi.hoisted(() => {
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() });
 });
 
-it('shows matching answer usage on both the first and later questions and keeps totals separate', () => {
+it('shows usage only below answers and keeps conversation totals separate', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const container = document.createElement('div'); const root = createRoot(container);
   const first: RequestUsage = { id: 'r1', purpose: 'answer', model: 'test', providerId: 'custom', createdAt: 1, status: 'complete', inputTokens: 900, outputTokens: 100, versionId: 1 };
@@ -28,11 +28,11 @@ it('shows matching answer usage on both the first and later questions and keeps 
   ] } } });
   try {
     act(() => root.render(<ChatMessageList nodeId="c1" onExplore={() => {}} />));
-    const summary = (id: string) => container.querySelector(`[data-message-id="${id}"] [data-token-usage] summary`)?.textContent;
-    expect(summary('q1')).toContain('输入 1,000');
+    const summary = (id: string) => container.querySelector(`[data-message-id="${id}"] [data-token-usage]`)?.textContent;
+    expect(summary('q1')).toBeUndefined();
     expect(summary('a1')).toContain('本次回答'); expect(summary('a1')).toContain('输入 1,000');
-    expect(summary('q2')).toContain('输入 1,100'); expect(summary('a2')).toContain('输入 1,100');
-    const total = [...container.querySelectorAll('[data-token-usage] summary')].find((element) => element.textContent?.includes('本会话累计'));
+    expect(summary('q2')).toBeUndefined(); expect(summary('a2')).toContain('输入 1,100');
+    const total = [...container.querySelectorAll('[data-token-usage]')].find((element) => element.textContent?.includes('本会话累计'));
     expect(total?.textContent).toContain('输入 3,020');
   } finally { act(() => root.unmount()); vi.unstubAllGlobals(); }
 });
