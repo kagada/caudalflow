@@ -7,6 +7,18 @@ beforeEach(() => {
 });
 
 describe('flowStore', () => {
+  it('preserves expanded dimensions through compact measurements and saves explicit user resizing', () => {
+    const id = useFlowStore.getState().addChatNode({ x: 10, y: 20 }, { topic: '尺寸' });
+    const store = useFlowStore.getState();
+    store.onNodesChange([{ type: 'dimensions', id, dimensions: { width: 760, height: 640 }, setAttributes: true }]);
+    expect(useFlowStore.getState().nodes[0].style).toEqual({ width: 760, height: 640 });
+    store.closeActiveCard();
+    store.onNodesChange([{ type: 'dimensions', id, dimensions: { width: 260, height: 148 } }]);
+    expect(useFlowStore.getState().nodes[0].style).toEqual({ width: 760, height: 640 });
+    store.updateNodeData(id, { minimized: false });
+    expect(useFlowStore.getState().nodes[0].style).toEqual({ width: 760, height: 640 });
+    expect(useFlowStore.getState().nodes[0].data._prevWidth).toBeUndefined();
+  });
   it('closes only the active medium or large card without deleting or moving it', () => {
     const first = useFlowStore.getState().addChatNode({ x: 120, y: 180 }, { topic: 'A' });
     const second = useFlowStore.getState().addChatNode({ x: 700, y: 500 }, { topic: 'B', maximized: true });
@@ -14,7 +26,7 @@ describe('flowStore', () => {
     const nodes = useFlowStore.getState().nodes;
     expect(nodes).toHaveLength(2);
     expect(nodes.find(node => node.id === first)!.data.minimized).not.toBe(true);
-    expect(nodes.find(node => node.id === second)).toMatchObject({ position: { x: 700, y: 500 }, data: { minimized: true, maximized: false, _prevWidth: 400, _prevHeight: 500 } });
+    expect(nodes.find(node => node.id === second)).toMatchObject({ position: { x: 700, y: 500 }, data: { minimized: true, maximized: false } });
     const unchanged = useFlowStore.getState().nodes;
     useFlowStore.getState().closeActiveCard();
     expect(useFlowStore.getState().nodes).toBe(unchanged);
@@ -152,9 +164,9 @@ describe('flowStore', () => {
       expect(edges[0].targetHandle).toBe('left');
     });
 
-    it('creates deterministic edge id from source and target', () => {
+    it('creates an independent short edge identity', () => {
       useFlowStore.getState().addEdge('src-1', 'tgt-2', 'label');
-      expect(useFlowStore.getState().edges[0].id).toBe('e-src-1-tgt-2');
+      expect(useFlowStore.getState().edges[0].id).toMatch(/^[A-Za-z0-9_-]{12}$/);
     });
   });
 

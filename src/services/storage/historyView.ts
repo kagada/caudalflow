@@ -23,7 +23,7 @@ const preview = (text: string) => text.replace(/\s+/g, ' ').slice(0, 60) || '空
 function messageValue(message: ChatMessage) {
   const { versionId, previousVersions, ...content } = message;
   void versionId; void previousVersions;
-  return content;
+  return { ...content, kind: content.kind ?? 'message' };
 }
 
 function attributes(data: WorkspaceData, id: string) {

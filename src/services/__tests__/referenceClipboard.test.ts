@@ -32,4 +32,14 @@ describe('reference clipboard formats', () => {
     expect(() => readReferenceClipboard(referenceClipboardFormats(reference).html)).toThrow('不完整');
     expect(() => readReferenceClipboard('<div data-caudalflow-reference="%ZZ"></div>')).toThrow('不完整');
   });
+
+  it('keeps integer source versions and rejects invalid version identifiers', () => {
+    const reference = sampleReference(); reference.sources[0].versionId = 37;
+    expect(readReferenceClipboard(referenceClipboardFormats(reference).html)?.sources[0].versionId).toBe(37);
+    for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '37']) {
+      const invalid = { ...reference, sources: [{ ...reference.sources[0], versionId: value }] };
+      const html = `<div data-caudalflow-reference="${encodeURIComponent(JSON.stringify({ type: 'caudalflow-reference', version: 1, reference: invalid }))}"></div>`;
+      expect(() => readReferenceClipboard(html)).toThrow('不完整');
+    }
+  });
 });

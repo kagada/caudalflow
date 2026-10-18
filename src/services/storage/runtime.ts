@@ -244,10 +244,10 @@ export async function retryDesktopStorage() {
   } catch (error) { report(error); throw error; }
 }
 
-// 文件被搬走时允许重新选择位置，不要求用户先把文件搬回应用默认目录。
-export async function recoverOpenDesktopWorkspace() {
+// 旧文件不可用时可选择新版文件或新建，避免启动错误界面无路可走。
+export async function recoverDesktopWorkspace(action: 'open' | 'create') {
   try {
-    const workspace = await storage.request<StoredWorkspace | null>('open');
+    const workspace = await storage.request<StoredWorkspace | null>(action);
     if (!workspace) return;
     useWorkspaceStore.setState({ workspaces: await storage.request<WorkspaceMetadata[]>('list') });
     activate(workspace); observeStores();
@@ -396,7 +396,7 @@ export async function listDocumentVersions(documentId: string): Promise<Document
   return activeId ? storage.request('versions', { id: activeId, documentId }) : [];
 }
 
-export async function selectDocumentVersion(nodeId: string, documentId: string, versionId: string) {
+export async function selectDocumentVersion(nodeId: string, documentId: string, versionId: number) {
   return perform(async () => {
     if (!activeId || useChatStore.getState().conversations[nodeId]?.isStreaming) return;
     const message = await storage.request<ChatMessage>('version', { id: activeId, documentId, versionId });

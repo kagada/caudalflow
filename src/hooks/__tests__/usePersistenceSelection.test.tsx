@@ -83,6 +83,16 @@ describe('selection and workspace autosave', () => {
     expect(JSON.parse(localStorage.getItem(key)!).nodes[0].data.topic).toBe('Edited');
   });
 
+  it('restores minimized cards without replacing their saved expanded dimensions', () => {
+    localStorage.setItem('caudalflow-workspace-compact', JSON.stringify({ nodes: [
+      { id: 'sized', type: 'chat', position: { x: 120, y: 80 }, data: { topic: '尺寸', minimized: true }, style: { width: 760, height: 640 } },
+    ], edges: [], conversations: {} }));
+    act(() => useWorkspaceStore.setState({ activeWorkspaceId: 'compact' }));
+    expect(useFlowStore.getState().nodes[0].style).toEqual({ width: 760, height: 640 });
+    act(() => useFlowStore.getState().updateNodeData('sized', { minimized: false }));
+    expect(useFlowStore.getState().nodes[0].style).toEqual({ width: 760, height: 640 });
+  });
+
   it('persists positions, sizes, branches, messages, and deletions', () => {
     act(() => {
       useFlowStore.getState().onNodesChange([{ type: 'position', id: 'a', position: { x: 100, y: 200 } }]);

@@ -24,7 +24,7 @@ describe('branch initialization stays responsive while summarizing', () => {
     let resolve!: (value: ContentReference) => void;
     fake.resolve.mockImplementation(() => new Promise((done) => { resolve = done; }));
     startReferenceConversation('child', '为什么', [reference]);
-    expect(useChatStore.getState().getMessages('child').map((message) => message.kind ?? message.role)).toEqual(['reference', 'user', 'assistant']);
+    expect(useChatStore.getState().getMessages('child').map((message) => message.kind === 'reference' ? 'reference' : message.role)).toEqual(['reference', 'user', 'assistant']);
     expect(useChatStore.getState().conversations.child.isStreaming).toBe(true);
     expect(fake.stream).not.toHaveBeenCalled();
     resolve({ ...reference, summary: '准备完毕的摘要', summaryInput: undefined });

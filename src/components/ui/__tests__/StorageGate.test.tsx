@@ -3,13 +3,13 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { StorageGate } from '../StorageGate';
-import { useStorageStatus } from '../../../services/storage/runtime';
+import { recoverDesktopWorkspace, useStorageStatus } from '../../../services/storage/runtime';
 
 vi.mock('../../../services/storage/desktop', () => ({ isDesktopStorage: () => true }));
 vi.mock('../../../services/storage/runtime', async () => {
   const { create } = await import('zustand');
   return { useStorageStatus: create(() => ({ ready: true, busy: false, error: null })),
-    recoverOpenDesktopWorkspace: vi.fn(), retryDesktopStorage: vi.fn() };
+    recoverDesktopWorkspace: vi.fn(), retryDesktopStorage: vi.fn() };
 });
 
 let container: HTMLDivElement, root: Root;
@@ -48,4 +48,12 @@ it('shows startup and errors immediately, including failures during the delay', 
   await status({ error: '磁盘空间不足' });
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('磁盘空间不足');
   expect(container.textContent).toContain('重试');
+});
+
+it('offers a fresh workspace when old files cannot be opened at startup', async () => {
+  await status({ ready: false, error: '工作区文件版本不受支持' });
+  const create = [...container.querySelectorAll('button')].find((button) => button.textContent === '新建工作区')!;
+  await act(async () => create.click());
+  expect(recoverDesktopWorkspace).toHaveBeenCalledWith('create');
+  await status({ ready: true }); expect(container.textContent).not.toContain('新建工作区');
 });

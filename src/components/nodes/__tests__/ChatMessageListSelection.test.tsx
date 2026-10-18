@@ -83,7 +83,7 @@ describe('canvas selection keeps conversation content cached', () => {
 
   it('marks the same raw range for branch and pasted references, including formatted and repeated text', () => {
     const content = '重复\n\n重复 **重点** 和 [链接](https://example.com)\n\n末段';
-    const source = { workspaceId: '', conversationId: 'a', documentId: 'm', versionId: 'v1', title: 'A',
+    const source = { workspaceId: '', conversationId: 'a', documentId: 'm', versionId: 1, title: 'A',
       documentText: content, start: 4, length: content.length - 4 };
     const ref: Message = { id: 'ref', referenceForId: 'qb', role: 'system', kind: 'reference', timestamp: 0, content: '', reference: {
       id: 'r', snapshotKey: 'k', summary: '摘要', quote: '重复 重点 和 链接\n末段', createdAt: 0, sources: [source],
@@ -91,7 +91,7 @@ describe('canvas selection keeps conversation content cached', () => {
     act(() => {
       useWorkspaceStore.setState({ activeWorkspaceId: null });
       useChatStore.setState({ conversations: {
-        a: { nodeId: 'a', isStreaming: false, messages: [{ id: 'm', versionId: 'v1', role: 'assistant', content, timestamp: 0 }] },
+        a: { nodeId: 'a', isStreaming: false, messages: [{ id: 'm', versionId: 1, role: 'assistant', content, timestamp: 0 }] },
         b: { nodeId: 'b', isStreaming: false, messages: [ref, { id: 'qb', role: 'user', content: '为什么', timestamp: 1 }] },
       } });
     });
@@ -114,7 +114,7 @@ describe('canvas selection keeps conversation content cached', () => {
     } })));
     expect(markdownRender).not.toHaveBeenCalled();
     act(() => useChatStore.setState((state) => ({ conversations: { ...state.conversations,
-      a: { ...state.conversations.a, messages: [{ ...state.conversations.a.messages[0], versionId: 'v2' }] },
+      a: { ...state.conversations.a, messages: [{ ...state.conversations.a.messages[0], versionId: 2 }] },
     } })));
     expect(container.querySelector('mark')).toBeNull();
   });

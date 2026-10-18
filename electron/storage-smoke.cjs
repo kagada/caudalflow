@@ -88,7 +88,7 @@ async function runSmokeTest(window, app, storage) {
     assert.equal(creationDetail.after.conversations[nodeId].messages.length, 2);
     assert.equal(creationDetail.after.nodes[0].data.topic, 'SQLite 聊天自检标题');
     assert.equal(stored.data.conversations[nodeId].messages.at(-1).content, 'SQLite 流式回复成功');
-    assert(stored.data.conversations[nodeId].messages.at(-1).versionId);
+    assert(Number.isSafeInteger(stored.data.conversations[nodeId].messages.at(-1).versionId));
     assert(await window.webContents.executeJavaScript("document.querySelector('details').textContent.includes('桌面思考测试')"));
 
     const answerId = stored.data.conversations[nodeId].messages.at(-1).id;
@@ -184,6 +184,7 @@ async function runSmokeTest(window, app, storage) {
     const childId = stored.data.nodes.find((node) => node.id !== nodeId).id;
     const childMessages = stored.data.conversations[childId].messages;
     assert.equal(childMessages[0].kind, 'reference'); assert.equal(childMessages[1].role, 'user'); assert.equal(childMessages[2].role, 'assistant');
+    assert(Number.isSafeInteger(childMessages[0].reference.sources[0].versionId));
     assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
     // 真正的第二个 BrowserWindow 编辑提示词，主窗口通过同源 storage 事件采用新值。
     await window.webContents.executeJavaScript("fetch('/api/settings-window',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'prompts'})}).then(response=>{if(!response.ok)throw new Error('settings window failed')})");
@@ -481,10 +482,26 @@ async function runSmokeTest(window, app, storage) {
     await waitFor(window,`document.querySelector('.react-flow__viewport')?.style.transform===${JSON.stringify(savedTransform)}`);
     await window.webContents.executeJavaScript('window.caudalflowFlush()');
     assert.equal((await storage.call('history',{id:workspaceId})).length,historyBeforeViewport);
+    // 重开缩小的自定义尺寸卡片，再走真实展开入口，不能回退到默认大小。
+    stored = await storage.call('load', { id: workspaceId });
+    const sizedNode = stored.data.nodes.find(node => node.id === nodeId);
+    sizedNode.style = { width: 760, height: 640 };
+    sizedNode.data.minimized = true; sizedNode.data.collapsed = false;
+    await storage.call('save', { id: workspaceId, data: stored.data, expectedRevision: stored.revision, history: false });
+    loaded=once(window.webContents,'did-finish-load'); window.webContents.reload(); await loaded;
+    await waitFor(window, `!!window.caudalflowFlush && document.querySelector('.react-flow__node[data-id="${nodeId}"]')?.style.width==='260px'`);
+    await window.webContents.executeJavaScript(`document.querySelector('.react-flow__node[data-id="${nodeId}"] > div').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
+    await waitFor(window, `document.querySelector('.react-flow__node[data-id="${nodeId}"]')?.style.width==='760px'`);
+    await window.webContents.executeJavaScript('window.caudalflowFlush()');
+    const expandedNode = (await storage.call('load', { id: workspaceId })).data.nodes.find(node => node.id === nodeId);
+    assert.equal(expandedNode.style.width, 760); assert.equal(expandedNode.style.height, 640);
     const destination = path.join(app.getPath('userData'), 'shared.caudalflow');
     await storage.call('export', { id: workspaceId, filename: destination });
     const { DatabaseSync } = require('node:sqlite'); const copy = new DatabaseSync(destination);
     assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name='history'").get().n, 0);
+    assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM document_versions WHERE typeof(id)<>'integer'").get().n, 0);
+    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM documents WHERE kind IS NULL').get().n, 0);
+    assert.deepEqual(copy.prepare('PRAGMA foreign_key_check').all(), []);
     copy.close();
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());

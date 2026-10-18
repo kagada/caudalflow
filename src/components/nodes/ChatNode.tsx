@@ -140,8 +140,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
     const flowStore = useFlowStore.getState();
     const node = flowStore.nodes.find((n) => n.id === id);
     if (!node) return;
-    const prevWidth = (node.style?.width as number) ?? 400;
-    const prevHeight = (node.style?.height as number) ?? 500;
+    // 小卡片尺寸由画布投影提供，展开尺寸始终留在节点 style 中。
     flowStore.setNodes(
       flowStore.nodes.map((n) =>
         n.id === id
@@ -151,10 +150,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
                 ...n.data,
                 minimized: true,
                 maximized: false,
-                _prevWidth: prevWidth,
-                _prevHeight: prevHeight,
               },
-              style: { ...n.style, width: "auto", height: "auto" },
             }
           : n,
       ),
@@ -165,16 +161,13 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
     const flowStore = useFlowStore.getState();
     const node = flowStore.nodes.find((n) => n.id === id);
     if (!node) return;
-    const w = (node.data._prevWidth as number) ?? 400;
-    const h = (node.data._prevHeight as number) ?? 500;
     flowStore.setNodes(
       flowStore.nodes.map((n) =>
         n.id === id
           ? {
               ...n,
               data: { ...n.data, minimized: false, collapsed: false, maximized: false },
-              style: { ...n.style, width: w, height: h },
-              // 小卡片展开为中卡片只恢复尺寸，左上角保留当前排版位置。
+              // 展开沿用保存的尺寸，左上角保留当前排版位置。
               position: n.position,
             }
           : n,

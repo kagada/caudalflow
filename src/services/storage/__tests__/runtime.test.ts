@@ -149,8 +149,8 @@ describe('desktop command and persistence coordination', () => {
     chatStore.addOrUpdateMessage('c1', { ...chatStore.getMessages('c1')[0], content: '带图片的新版本', reasoning: '新思考', images: [{ mimeType: 'image/png', base64: 'cGljdHVyZQ==' }] });
     await runtime.flushDesktopStorage();
     const previous = fake.request.getMockImplementation()!;
-    fake.request.mockImplementation((action, payload) => action === 'version' ? Promise.resolve({ id: 'm1', role: 'assistant', content: '初始', timestamp: 1, versionId: 'old' }) : previous(action, payload));
-    await runtime.selectDocumentVersion('c1', 'm1', 'old');
+    fake.request.mockImplementation((action, payload) => action === 'version' ? Promise.resolve({ id: 'm1', role: 'assistant', content: '初始', timestamp: 1, versionId: 1 }) : previous(action, payload));
+    await runtime.selectDocumentVersion('c1', 'm1', 1);
     const selected = chat.useChatStore.getState().getMessages('c1')[0];
     expect(selected.content).toBe('初始'); expect(selected.images).toBeUndefined(); expect(selected.reasoning).toBeUndefined();
     await runtime.replayDesktopCommand('undo'); expect(chat.useChatStore.getState().getMessages('c1')[0].images).toHaveLength(1);

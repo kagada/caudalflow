@@ -32,12 +32,12 @@ export function readReferenceClipboard(html: string): ContentReference | null {
     const payload = JSON.parse(decodeURIComponent(value));
     const item = payload.reference;
     const short = (entry: unknown) => typeof entry === 'string' && entry.length <= 1000;
-    if (payload.type !== 'caudalflow-reference' || payload.version !== 1 || !item || !short(item.id) || !/^[a-f0-9]{64}$/.test(item.snapshotKey) ||
+    if (payload.type !== 'caudalflow-reference' || payload.version !== 1 || !item || !short(item.id) || !/^[A-Za-z0-9_-]{22}$/.test(item.snapshotKey) ||
       typeof item.summary !== 'string' || item.summary.length > 200000 || typeof item.quote !== 'string' || item.quote.length > 2000000 ||
       !Number.isFinite(item.createdAt) || !Array.isArray(item.sources) || !item.sources.length || item.sources.length > 100) throw new Error();
     const sources = item.sources.map((source: ContentReference['sources'][number]) => {
       if (!source || !short(source.workspaceId) || !short(source.conversationId) || !short(source.documentId) || !short(source.title) ||
-        (source.versionId !== undefined && !short(source.versionId)) || typeof source.documentText !== 'string' || source.documentText.length > 2000000 ||
+        (source.versionId !== undefined && (!Number.isSafeInteger(source.versionId) || source.versionId <= 0)) || typeof source.documentText !== 'string' || source.documentText.length > 2000000 ||
         !Number.isInteger(source.start) || !Number.isInteger(source.length) || source.start < 0 || source.length < 0 || source.start + source.length > source.documentText.length) throw new Error();
       if (source.images && (!Array.isArray(source.images) || source.images.some((image) => !image || typeof image.mimeType !== 'string' || !image.mimeType.startsWith('image/') || typeof image.base64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(image.base64)))) throw new Error();
       return { workspaceId: source.workspaceId, conversationId: source.conversationId, documentId: source.documentId, versionId: source.versionId,

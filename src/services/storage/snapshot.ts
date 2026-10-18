@@ -1,7 +1,7 @@
 import type { WorkspaceData } from '../../types/workspace';
 import type { ChatNode } from '../../types/flow';
 
-const layoutKeys = ['collapsed', 'minimized', 'maximized', '_prevWidth', '_prevHeight', '_prevX', '_prevY'];
+const layoutKeys = ['collapsed', 'minimized', 'maximized'];
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)])) : value;
 
 // 布局与内容分离：内容撤销只替换发生变化的会话，现有卡片保持最新位置和尺寸。
@@ -12,7 +12,7 @@ export function nodeContent(node: ChatNode) {
 export function contentKey(data: WorkspaceData): string {
   return JSON.stringify(canonical({ nodes: data.nodes.map((node) => ({ id: node.id, data: nodeContent(node) })), edges: data.edges.map(({ id, source, target, data }) => ({ id, source, target, data })), conversations: Object.fromEntries(data.nodes.map(({ id }) => [id, (data.conversations[id]?.messages ?? []).map(({ previousVersions, versionId, ...message }) => {
     void previousVersions; void versionId;
-    return message;
+    return { ...message, kind: message.kind ?? 'message' };
   })])) }));
 }
 

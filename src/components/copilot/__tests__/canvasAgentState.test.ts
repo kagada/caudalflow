@@ -69,7 +69,7 @@ describe('buildCanvasAgentState', () => {
     });
     expect(state.edges).toEqual([
       {
-        id: `e-${nodeId}-${childId}`,
+        id: useFlowStore.getState().edges[0].id,
         source: nodeId,
         target: childId,
         label: 'follow-up',

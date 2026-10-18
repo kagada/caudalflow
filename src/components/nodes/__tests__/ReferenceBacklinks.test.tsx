@@ -17,7 +17,7 @@ const scroll = vi.fn();
 const bubbleClick = vi.fn();
 
 function reference(id: string, questionId: string, start: number, length: number): ChatMessage {
-  const source: ReferenceSource = { workspaceId: 'w', conversationId: 'a', documentId: 'answer', versionId: 'v1', title: '原会话标题', documentText: content, start, length };
+  const source: ReferenceSource = { workspaceId: 'w', conversationId: 'a', documentId: 'answer', versionId: 1, title: '原会话标题', documentText: content, start, length };
   return { id, role: 'system', kind: 'reference', referenceForId: questionId, content: '摘要', timestamp: 0,
     reference: { id, snapshotKey: 'k', summary: '摘要', quote: content.slice(start, start + length), sources: [source], createdAt: 0 } };
 }
@@ -27,7 +27,7 @@ beforeEach(async () => {
   useWorkspaceStore.setState({ activeWorkspaceId: 'w' });
   useFlowStore.setState({ nodes: ['a', 'b', 'c'].map((id) => ({ id, type: 'chat', position: { x: 0, y: 0 }, data: { topic: id, collapsed: id !== 'a' } })), edges: [] });
   useChatStore.setState({ conversations: {
-    a: { nodeId: 'a', isStreaming: false, messages: [{ id: 'answer', role: 'assistant', content, versionId: 'v1', timestamp: 0 }] },
+    a: { nodeId: 'a', isStreaming: false, messages: [{ id: 'answer', role: 'assistant', content, versionId: 1, timestamp: 0 }] },
     b: { nodeId: 'b', isStreaming: false, messages: [reference('r1', 'qb', 0, content.indexOf('\n\n')), reference('r2', 'qb', content.indexOf('共同'), 2), { id: 'qb', role: 'user', content: '完整段落是什么意思？', timestamp: 0 }] },
     c: { nodeId: 'c', isStreaming: false, messages: [reference('r3', 'qc', content.indexOf('共同'), 4), { id: 'qc', role: 'user', content: '共同片段为什么成立？', timestamp: 0 }] },
   } });
@@ -95,7 +95,7 @@ describe('forward reference navigation', () => {
   it('drops deleted questions and does not attach old version references to new answers', async () => {
     await act(async () => useChatStore.getState().setConversationMessages('c', []));
     expect(button().dataset.backlinkCount).toBe('1');
-    await act(async () => useChatStore.getState().setConversationMessages('a', [{ ...useChatStore.getState().getMessages('a')[0], versionId: 'v2' }]));
+    await act(async () => useChatStore.getState().setConversationMessages('a', [{ ...useChatStore.getState().getMessages('a')[0], versionId: 2 }]));
     expect(container.querySelector('[data-backlink-count]')).toBeNull(); expect(marks()).toBe('');
   });
 });

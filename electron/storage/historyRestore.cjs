@@ -1,5 +1,5 @@
 // 选中问答或属性时只恢复该范围，不用旧会话整体覆盖后来产生的其他内容。
-const layoutKeys = new Set(['collapsed', 'minimized', 'maximized', '_prevWidth', '_prevHeight', '_prevX', '_prevY']);
+const layoutKeys = new Set(['collapsed', 'minimized', 'maximized']);
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 function restoreSelection(current, before, after, side, conversationId, selection) {

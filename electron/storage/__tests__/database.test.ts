@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -8,7 +8,7 @@ import type { WorkspaceData } from '../../../src/types/workspace';
 import { sampleReference } from '../../../src/services/__tests__/referenceFixtures';
 
 const require = createRequire(import.meta.url);
-const { WorkspaceDatabase } = require('../database.cjs');
+const { WorkspaceDatabase, SCHEMA_VERSION } = require('../database.cjs');
 
 function example(): WorkspaceData {
   return { nodes: [{ id: 'c1', type: 'chat', position: { x: 10, y: 20 }, data: { topic: '会话', label: '学习', done: true }, style: { width: 400, height: 500 } }], edges: [], conversations: { c1: { nodeId: 'c1', messages: [{ id: 'q1', role: 'user', content: '问题', timestamp: 100 }, { id: 'a1', role: 'assistant', content: '原回答', reasoning: '思考', timestamp: 200 }], isStreaming: false } } };
@@ -41,12 +41,12 @@ describe('SQLite workspace and independent local history', () => {
 
   it('persists reusable summary caches without adding user history and validates incoming snapshots', () => {
     const historyCount = workspace.listHistory().length;
-    workspace.referenceCachePut('b'.repeat(64), '共享摘要');
-    expect(workspace.referenceCacheGet('b'.repeat(64))).toBe('共享摘要');
+    workspace.referenceCachePut('b'.repeat(22), '共享摘要');
+    expect(workspace.referenceCacheGet('b'.repeat(22))).toBe('共享摘要');
     expect(workspace.listHistory()).toHaveLength(historyCount);
     const filename = workspace.filename; workspace.close();
     workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
-    expect(workspace.referenceCacheGet('b'.repeat(64))).toBe('共享摘要');
+    expect(workspace.referenceCacheGet('b'.repeat(22))).toBe('共享摘要');
     const bad = example(); const reference = sampleReference(); reference.sources[0].length = 999;
     bad.conversations.c1.messages.push({ id: 'r1', role: 'system', kind: 'reference', reference, content: reference.summary, timestamp: 3 });
     expect(() => workspace.save(bad)).toThrow('引用快照');
@@ -133,14 +133,131 @@ describe('SQLite workspace and independent local history', () => {
     expect(workspace.load().data.nodes[0].data).toMatchObject({ topic: '会话', label: '学习', done: true });
   });
 
+  it('stores current text and order on documents and removes deleted messages and versions', () => {
+    const data = example();
+    data.conversations.c1.messages.push({ id: 'q2', role: 'user', content: '后续问题', timestamp: 300 });
+    workspace.save(data);
+    data.conversations.c1.messages[1].content = '重新生成';
+    data.conversations.c1.messages[1].timestamp = 999; workspace.save(data);
+    expect(workspace.db.prepare('SELECT id,position,content,kind FROM documents ORDER BY position').all()).toEqual([
+      { id: 'q1', position: 0, content: '问题', kind: 'message' }, { id: 'a1', position: 1, content: '重新生成', kind: 'message' }, { id: 'q2', position: 2, content: '后续问题', kind: 'message' },
+    ]);
+    data.conversations.c1.messages.reverse(); workspace.save(data);
+    expect(workspace.load().data.conversations.c1.messages.map((message: { id: string }) => message.id)).toEqual(['q2', 'a1', 'q1']);
+    data.conversations.c1.messages = data.conversations.c1.messages.filter((message) => message.id !== 'a1'); workspace.save(data);
+    expect(workspace.db.prepare("SELECT id FROM documents WHERE id='a1'").get()).toBeUndefined();
+    expect(workspace.listVersions('a1')).toEqual([]);
+    expect(workspace.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('uses integer version identities without reusing deleted IDs or accepting cross-document hints', () => {
+    workspace.save(example());
+    const loaded = workspace.load().data; const firstId = loaded.conversations.c1.messages[0].versionId;
+    expect(Number.isSafeInteger(firstId)).toBe(true);
+    expect(workspace.db.prepare('SELECT DISTINCT typeof(id) type FROM document_versions').all()).toEqual([{ type: 'integer' }]);
+    const previousMax = workspace.db.prepare('SELECT MAX(id) n FROM document_versions').get().n;
+    const data = example(); data.conversations.c1.messages = [data.conversations.c1.messages[0]]; workspace.save(data);
+    data.conversations.c1.messages.push({ id: 'a2', role: 'assistant', content: '新回答', timestamp: 3, versionId: firstId });
+    workspace.save(data);
+    expect(workspace.load().data.conversations.c1.messages[1].versionId).toBeGreaterThan(previousMax);
+    expect(workspace.readVersion('q1', firstId).content).toBe('问题');
+    expect(() => workspace.readVersion('a2', firstId)).toThrow('不存在');
+  });
+
+  it('stores immutable document kinds once and rejects changes before committing any other edits', () => {
+    const data = example(); workspace.save(data); const revision = workspace.revision;
+    data.nodes[0].data.topic = '不能部分写入';
+    Object.assign(data.conversations.c1.messages[1], { role: 'system', kind: 'reference', reference: sampleReference() });
+    expect(() => workspace.save(data)).toThrow('不能改变类型');
+    expect(workspace.revision).toBe(revision);
+    expect(workspace.load().data.nodes[0].data.topic).toBe('会话');
+    const columns = workspace.db.prepare('PRAGMA table_info(document_versions)').all().map((row: { name: string }) => row.name);
+    expect(columns).not.toContain('kind'); expect(columns).not.toContain('fingerprint'); expect(columns).not.toContain('metadata_json');
+  });
+
+  it('keeps independent reference fields, multiple sources and source images through version switching and deletion', () => {
+    const data = example(); const reference = sampleReference();
+    const image = { mimeType: 'image/png', base64: Buffer.from('source image').toString('base64') };
+    reference.sources[0].images = [image];
+    reference.sources.push({ ...reference.sources[0], documentId: 'another', versionId: undefined, images: undefined });
+    reference.summaryInput = [{ role: 'user', content: '待摘要的完整背景', images: [image] }];
+    data.conversations.c1.messages.push({ id: 'r1', role: 'system', kind: 'reference', reference, referenceForId: 'q1', content: reference.summary, timestamp: 3 });
+    workspace.save(data); const versionId = workspace.load().data.conversations.c1.messages[2].versionId;
+    expect(workspace.db.prepare('SELECT summary,quote FROM document_references').get()).toEqual({ summary: reference.summary, quote: reference.quote });
+    expect(workspace.db.prepare('SELECT COUNT(*) n FROM reference_sources').get().n).toBe(2);
+    const filename = workspace.filename; workspace.close(); workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
+    expect(workspace.readVersion('r1', versionId).reference).toEqual(reference);
+    const resolved = structuredClone(data); delete resolved.conversations.c1.messages[2].reference!.summaryInput;
+    resolved.conversations.c1.messages[2].reference!.summary = '完成的摘要'; resolved.conversations.c1.messages[2].content = '完成的摘要';
+    workspace.save(resolved);
+    expect(workspace.readVersion('r1', versionId).reference).toEqual(reference);
+    expect(workspace.load().data.conversations.c1.messages[2].reference.summaryInput).toBeUndefined();
+    workspace.save(data); expect(workspace.load().data.conversations.c1.messages[2].versionId).toBe(versionId);
+    data.conversations.c1.messages.pop(); workspace.save(data);
+    for (const table of ['document_references', 'reference_sources', 'reference_source_attachments', 'attachments']) expect(workspace.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n).toBe(0);
+  });
+
+  it('reuses reference versions regardless of object key order and empty optional image lists', () => {
+    const data = example(); const reference = sampleReference(); reference.sources[0].images = [];
+    data.conversations.c1.messages.push({ id: 'r1', role: 'system', kind: 'reference', reference, content: reference.summary, timestamp: 3 });
+    workspace.save(data); const versionId = workspace.load().data.conversations.c1.messages[2].versionId;
+    data.conversations.c1.messages[2].reference = Object.fromEntries(Object.entries(reference).reverse()) as typeof reference;
+    workspace.save(data);
+    expect(workspace.load().data.conversations.c1.messages[2].versionId).toBe(versionId);
+    expect(workspace.listVersions('r1')).toHaveLength(1);
+  });
+
+  it('persists explicit layout columns and restores compact cards with the original expanded dimensions', () => {
+    const data = example(); data.nodes[0].style = { width: 780, height: 640 }; data.nodes[0].zIndex = 7;
+    data.nodes[0].data.minimized = true; data.nodes[0].data.maximized = true;
+    workspace.save(data);
+    expect(workspace.db.prepare('SELECT * FROM conversation_layouts').get()).toEqual({ conversation_id: 'c1', x: 10, y: 20, width: 780, height: 640, z_index: 7, collapsed: 0, minimized: 1 });
+    const filename = workspace.filename; workspace.close(); workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
+    expect(workspace.load().data.nodes[0]).toMatchObject({ style: { width: 780, height: 640 }, zIndex: 7, data: { minimized: true, maximized: false } });
+    const loaded = workspace.load().data; loaded.nodes[0].data.minimized = false; workspace.save(loaded);
+    expect(workspace.load().data.nodes[0].style).toEqual({ width: 780, height: 640 });
+    expect(workspace.listHistory()).toHaveLength(1);
+  });
+
+  it('stores only business fields for relations and restores interface defaults when loading', () => {
+    const data = example(); data.nodes.push({ id: 'child', type: 'chat', position: { x: 500, y: 0 }, data: { topic: '分支' } });
+    data.edges.push({ id: 'short', source: 'c1', target: 'child', type: 'topic', sourceHandle: 'right', targetHandle: 'left', data: { label: '关联说明' } });
+    workspace.save(data);
+    expect(workspace.db.prepare('SELECT * FROM relations').get()).toEqual({ id: 'short', source_id: 'c1', target_id: 'child', position: 0, label: '关联说明' });
+    expect(workspace.load().data.edges).toEqual(data.edges);
+    const tables = workspace.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row: { name: string }) => row.name);
+    expect(tables).not.toContain('conversation_documents'); expect(tables).not.toContain('version_assets');
+  });
+
+  it('keeps the selected old version as the regeneration baseline', () => {
+    workspace.save(example()); const old = workspace.load().data;
+    const changed = example(); changed.conversations.c1.messages[1].content = '另一个版本'; workspace.save(changed);
+    workspace.save(old); old.conversations.c1.isStreaming = true; old.conversations.c1.streamingMessageId = 'a1';
+    old.conversations.c1.messages[1].content = '生成中'; workspace.save(old, { history: false });
+    expect(workspace.db.prepare("SELECT content,current_version_id FROM documents WHERE id='a1'").get()).toEqual({ content: '原回答', current_version_id: old.conversations.c1.messages[1].versionId });
+    expect(workspace.load().data.conversations.c1.messages[1].content).toBe('生成中');
+  });
+
+  it('rejects previous schema versions without migrating or changing the file', () => {
+    const filename = workspace.filename; workspace.close();
+    for (const version of [1, 2]) {
+      const old = new DatabaseSync(filename); old.exec(`PRAGMA user_version=${version}`); old.close();
+      const original = readFileSync(filename);
+      expect(() => new WorkspaceDatabase(filename, join(root, 'personal'))).toThrow('文件版本不受支持');
+      expect(readFileSync(filename)).toEqual(original);
+    }
+    const repair = new DatabaseSync(filename); repair.exec(`PRAGMA user_version=${SCHEMA_VERSION}`); repair.close();
+    workspace = new WorkspaceDatabase(filename, join(root, 'personal'));
+  });
+
   it('stores image bytes once and keeps attachments bound to versions', () => {
     const data = example();
     data.conversations.c1.messages[0].images = [{ mimeType: 'image/png', base64: Buffer.from('picture').toString('base64') }];
     workspace.save(data);
     const next = structuredClone(data); next.conversations.c1.messages[0].content = '修改问题';
     workspace.save(next);
-    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM assets').get().n).toBe(1);
-    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM version_assets').get().n).toBe(2);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM attachments').get().n).toBe(1);
+    expect(workspace.db.prepare('SELECT COUNT(*) AS n FROM version_attachments').get().n).toBe(2);
     expect(workspace.load().data.conversations.c1.messages[0].images).toEqual(data.conversations.c1.messages[0].images);
   });
 
@@ -172,7 +289,7 @@ describe('SQLite workspace and independent local history', () => {
     try {
       const tables = copy.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
       expect(tables).toContain('documents'); expect(tables).not.toContain('history');
-      expect(copy.prepare('SELECT COUNT(*) AS n FROM conversation_documents').get()?.n).toBe(2);
+      expect(copy.prepare('SELECT COUNT(*) AS n FROM documents').get()?.n).toBe(2);
     } finally { copy.close(); }
   });
 

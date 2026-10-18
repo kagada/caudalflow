@@ -4,7 +4,7 @@ export interface ReferenceSource {
   workspaceId: string;
   conversationId: string;
   documentId: string;
-  versionId?: string;
+  versionId?: number;
   title: string;
   documentText: string;
   start: number;
@@ -28,7 +28,7 @@ export interface ReferenceSelection { documentId: string; text: string; start?: 
 
 export interface ChatMessage {
   id: string;
-  versionId?: string;
+  versionId?: number;
   generationStatus?: 'complete' | 'interrupted' | 'failed';
   role: MessageRole;
   content: string;
@@ -42,7 +42,8 @@ export interface ChatMessage {
   triggeredBy?: string;
   // 回复明确关联到提问，避免删除问题后仅凭相邻位置错误配对。
   replyToId?: string;
-  kind?: 'reference';
+  // 普通消息缺省为 message；持久化后总有明确类型，引用有独立内容表。
+  kind?: 'message' | 'reference';
   reference?: ContentReference;
   referenceForId?: string;
 }

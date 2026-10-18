@@ -98,7 +98,6 @@ async function runSmokeTest(window, app) {
       const middle = data.nodes[1];
       root.position = { x: 40, y: 130 }; root.style = { width: 460, height: 600 };
       middle.position = { x: 600, y: 150 }; middle.style = { width: 800, height: 500 }; middle.data.topic = '折叠与连线验证';
-      middle.data._prevX = -1000; middle.data._prevY = -800;
       const end = { id: 'smoke-end', type: 'chat', position: { x: 1060, y: 180 }, data: { topic: '末尾节点' }, style: { width: 340, height: 500 } };
       data.nodes.push(end);
       data.edges = [{ id: 'smoke-in', source: root.id, target: middle.id }, { id: 'smoke-out', source: middle.id, target: end.id }].map(edge => ({ ...edge, sourceHandle: 'right', targetHandle: 'left', type: 'topic', data: { label: '' } }));

@@ -8,10 +8,15 @@ import { desktopStorage, isDesktopStorage } from './storage/desktop';
 import { flushDesktopStorage } from './storage/runtime';
 import { getProvider } from './providers/registry';
 import { trackGeneration } from './streamLifecycle';
-import { DEFAULT_BUILTIN_PROMPTS, renderSummaryPrompt } from './builtinPrompts';
+import { DEFAULT_BUILTIN_PROMPTS, REFERENCE_SUMMARY_MAX_CHARS, REFERENCE_SUMMARY_TARGET_CHARS, renderSummaryPrompt } from './builtinPrompts';
 
 const cache = new Map<string, string>();
 const pending = new Map<string, Promise<string>>();
+// 缓存用 128 位内容摘要的紧凑表示，避免保存 64 字符十六进制串。
+async function referenceKey(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return btoa(String.fromCharCode(...new Uint8Array(digest).slice(0, 16))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 // 发给远端的是可见引用内容；元信息和原文快照留在本地，不冒充系统指令。
 export function modelMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.filter((message, index) => index === 0 || message.role !== 'system' || message.kind === 'reference').map((message) => message.kind === 'reference' && message.reference ? {
@@ -42,7 +47,7 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
       const fail = (error: Error) => { finish(); reject(error); };
       try {
         provider.streamChat([{ id: 'summary-system', role: 'system', content: instruction, timestamp: 0 }, ...modelMessages(input).map((message) => ({ ...message, role: message.role === 'system' ? 'user' as const : message.role }))],
-          { ...config, maxTokens: Math.max(128, Math.min(1024, maxChars * 3)), thinkingMode: 'disabled' }, {
+          { ...config, maxTokens: Math.max(128, Math.min(4096, maxChars * 3)), thinkingMode: 'disabled' }, {
             onToken: (token) => { text += token; },
             onDone: () => { finish(); if (text.trim()) resolve(text.trim()); else reject(new Error('模型没有返回摘要，请重试')); },
             onError: fail,
@@ -51,9 +56,9 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
     });
     let summary = await generate(context, prompt);
     if (summary.length > maxChars) {
-      summary = await generate([{ id: 'compress', role: 'user', content: summary, timestamp: 0 }], `${prompt}\n上次结果过长。请将下面的摘要进一步压缩至 ${maxChars} 字以内，只输出压缩结果。`);
+      summary = await generate([{ id: 'compress', role: 'user', content: summary, timestamp: 0 }], `${prompt}\n上次结果过长。请将下面的摘要进一步压缩至约 ${REFERENCE_SUMMARY_TARGET_CHARS} 字，最多 ${maxChars} 字，只输出压缩结果。`);
     }
-    if (summary.length > maxChars) throw new Error(`摘要仍超过 ${maxChars} 字，未保存；请调整设置中的引用摘要提示词后重试`);
+    if (summary.length > maxChars) throw new Error(`摘要压缩后仍超过 ${maxChars} 字，请重试`);
     cache.set(key, summary);
     if (isDesktopStorage()) {
       try { await desktopStorage.request('referenceCachePut', { id: workspaceId, key, summary }); }
@@ -93,8 +98,7 @@ export async function createReference(nodeId: string, selections?: ReferenceSele
   const config = useSettingsStore.getState().llmConfig;
   const identity = JSON.stringify({ version: 3, model: config.model, provider: config.providerId, endpoint: config.endpoint,
     context: context.map(({ role, content, images, reference }) => ({ role, content, images, reference })) });
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity));
-  const snapshotKey = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  const snapshotKey = await referenceKey(identity);
   const quote = targets.map((selection, index) => selection.text || sources[index].documentText).join('\n\n');
   const reference: ContentReference = { id: nanoid(), snapshotKey, summary: '', quote, sources, createdAt: Date.now(),
     summaryInput: modelMessages(context).map(({ role, content, images }) => ({ role: role === 'system' ? 'user' : role, content, ...(images?.length ? { images } : {}) })) };
@@ -106,10 +110,10 @@ export async function resolveReference(reference: ContentReference): Promise<Con
   if (!reference.summaryInput) return reference;
   const settings = useSettingsStore.getState();
   const sourceChars = reference.summaryInput.reduce((total, message) => total + message.content.length, 0);
-  const maxChars = Math.min(300, Math.max(64, Math.floor(sourceChars * 0.2)), Math.max(1, sourceChars));
+  // 500 字是生成目标，1000 字才触发压缩与拒绝，给模型正常的长度浮动空间。
+  const maxChars = REFERENCE_SUMMARY_MAX_CHARS;
   const prompt = renderSummaryPrompt(settings.builtinPrompts?.referenceSummary ?? DEFAULT_BUILTIN_PROMPTS.referenceSummary, sourceChars, maxChars);
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ snapshot: reference.snapshotKey, prompt, maxChars, model: settings.llmConfig.model, endpoint: settings.llmConfig.endpoint })));
-  const key = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  const key = await referenceKey(JSON.stringify({ snapshot: reference.snapshotKey, prompt, maxChars, model: settings.llmConfig.model, provider: settings.llmConfig.providerId, endpoint: settings.llmConfig.endpoint }));
   const context: ChatMessage[] = reference.summaryInput.map((message, index) => ({ ...message, id: `snapshot-${index}`, timestamp: 0 }));
   const summary = await summarize(key, context, useWorkspaceStore.getState().activeWorkspaceId ?? '', prompt, maxChars);
   const { summaryInput, ...resolved } = reference; void summaryInput;

@@ -37,7 +37,7 @@ describe('affected objects in one history operation', () => {
 
   it('ignores layout and version IDs but exposes changed labels and done state', () => {
     const before = workspace(); const after = structuredClone(before);
-    after.nodes[0].position.x = 800; after.nodes[0].data.collapsed = true; after.conversations.c1.messages[1].versionId = 'new-version';
+    after.nodes[0].position.x = 800; after.nodes[0].data.collapsed = true; after.conversations.c1.messages[1].versionId = 2;
     expect(buildHistoryView(detail(before, after))).toEqual([]);
     after.nodes[0].data.label = '标签'; after.nodes[0].data.done = true;
     const items = buildHistoryView(detail(before, after))[0].items;

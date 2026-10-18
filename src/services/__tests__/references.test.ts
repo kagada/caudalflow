@@ -22,7 +22,7 @@ beforeEach(() => {
   useFlowStore.setState({ nodes: [{ id: 'parent', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '学习来源' } }], edges: [] });
   useChatStore.setState({ conversations: { parent: { nodeId: 'parent', isStreaming: false, messages: [
     { id: 'q1', role: 'user', content: `问题 ${serial}`, timestamp: 1 },
-    { id: 'a1', versionId: 'v1', role: 'assistant', content: '第一段知识。后半段重要结论。', timestamp: 2 },
+    { id: 'a1', versionId: 1, role: 'assistant', content: '第一段知识。后半段重要结论。', timestamp: 2 },
     { id: 'q2', role: 'user', content: '之后的问题不应进入摘要', timestamp: 3 },
     { id: 'a2', role: 'assistant', content: '之后的回答不应进入摘要', timestamp: 4 },
   ] } } });
@@ -44,7 +44,7 @@ describe('independent reference snapshots', () => {
     const draft = await createReference('parent', undefined, { deferSummary: true });
     const first = await resolveReference(draft);
     provider.prompt = '请压缩为短摘要，最多 {{maxChars}} 字。';
-    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1000)); callbacks.onDone(); });
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
     const second = await resolveReference(draft);
     expect(first.snapshotKey).not.toBe(second.snapshotKey);
     expect(provider.streamChat).toHaveBeenCalledTimes(3);
@@ -54,10 +54,32 @@ describe('independent reference snapshots', () => {
 
   it('rejects an uncompressed result after one retry and permits retrying the original snapshot', async () => {
     const draft = await createReference('parent', undefined, { deferSummary: true });
-    provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1000)); callbacks.onDone(); });
-    await expect(resolveReference(draft)).rejects.toThrow('未保存');
+    provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
+    await expect(resolveReference(draft)).rejects.toThrow('仍超过 1000 字');
     expect(provider.streamChat).toHaveBeenCalledTimes(2);
     expect(draft.summaryInput).toBeDefined();
+  });
+
+  it.each([500, 600, 1000])('accepts a %i-character summary with a 500-character target and 1000-character limit', async (length) => {
+    provider.prompt = '只输出背景摘要。';
+    const summary = '摘'.repeat(length);
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken(summary); callbacks.onDone(); });
+    const reference = await createReference('parent');
+    expect(reference.summary).toBe(summary);
+    expect(provider.streamChat).toHaveBeenCalledTimes(1);
+    const [messages, config] = provider.streamChat.mock.calls[0];
+    expect(messages[0].content).toContain('目标约 500 字');
+    expect(messages[0].content).toContain('最多 1000 字');
+    expect(config.maxTokens).toBe(3000);
+  });
+
+  it('accepts compression to a result above the target but within the hard limit', async () => {
+    const summary = '摘'.repeat(800);
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken(summary); callbacks.onDone(); });
+    expect((await createReference('parent')).summary).toBe(summary);
+    expect(provider.streamChat).toHaveBeenCalledTimes(2);
+    expect(provider.streamChat.mock.calls[1][0][0].content).toContain('压缩至约 500 字，最多 1000 字');
   });
   it('summarizes complete documents up to the selected answer and shares the cache across selections', async () => {
     const a = await createReference('parent', [{ documentId: 'a1', text: '第一段知识' }]);
@@ -67,7 +89,7 @@ describe('independent reference snapshots', () => {
     expect(request.map((message: { content: string }) => message.content).join('\n')).toContain('后半段重要结论');
     expect(request.map((message: { content: string }) => message.content).join('\n')).not.toContain('之后的问题');
     expect(a.snapshotKey).toBe(b.snapshotKey); expect(a.quote).not.toBe(b.quote);
-    expect(a.sources[0]).toMatchObject({ documentId: 'a1', versionId: 'v1', start: 0, length: 5 });
+    expect(a.sources[0]).toMatchObject({ documentId: 'a1', versionId: 1, start: 0, length: 5 });
   });
 
   it('keeps old references unchanged after editing or deleting the source and inherits their background in grandchildren', async () => {
@@ -89,10 +111,10 @@ describe('independent reference snapshots', () => {
     const a = await createReference('parent', [{ documentId: 'q1', text: `问题 ${serial}` }, { documentId: 'a1', text: '重要结论' }]);
     expect(a.sources).toHaveLength(2);
     const messages = useChatStore.getState().getMessages('parent');
-    useChatStore.getState().setConversationMessages('parent', messages.map((message) => message.id === 'a1' ? { ...message, versionId: 'v2', content: '已修正的新知识' } : message));
+    useChatStore.getState().setConversationMessages('parent', messages.map((message) => message.id === 'a1' ? { ...message, versionId: 2, content: '已修正的新知识' } : message));
     const b = await createReference('parent', [{ documentId: 'a1', text: '新知识' }]);
     expect(a.snapshotKey).not.toBe(b.snapshotKey); expect(provider.streamChat).toHaveBeenCalledTimes(2);
-    expect(a.sources[1].versionId).toBe('v1'); expect(b.sources[0].versionId).toBe('v2');
+    expect(a.sources[1].versionId).toBe(1); expect(b.sources[0].versionId).toBe(2);
   });
 
   it('sends visible snapshots and original text without leaking source metadata or duplicate hidden system prompts', async () => {

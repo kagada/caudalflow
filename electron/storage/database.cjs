@@ -5,10 +5,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const APPLICATION_ID = 0x43464c57;
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 3;
 const EMPTY = () => ({ nodes: [], edges: [], conversations: {} });
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, canonical(value[key])])) : value;
+
+// 版本只比较可变化的内容，类型固定归文档，不为正文额外保存指纹。
+const versionContent = (message) => canonical({
+  content: message.kind === 'reference' ? message.reference.summary : message.content,
+  reasoning: message.reasoning ?? null, images: message.images ?? [],
+  reference: message.reference ? { ...message.reference, sources: message.reference.sources.map((source) => ({ ...source, images: source.images ?? [] })) } : undefined,
+  referenceForId: message.referenceForId, replyToId: message.replyToId,
+  triggeredBy: message.triggeredBy, generationStatus: message.generationStatus,
+});
 
 // 入口校验失败就中止整次写入，不用“空工作区”覆盖损坏或不兼容的数据。
 function validateData(data) {
@@ -20,11 +29,14 @@ function validateData(data) {
     nodes.add(node.id);
     for (const message of data.conversations[node.id]?.messages ?? []) {
       if (!message.id || documents.has(message.id) || !['user', 'assistant', 'system'].includes(message.role) || typeof message.content !== 'string' || !Number.isFinite(message.timestamp)) throw new Error('文档 ID、角色、正文或时间无效');
+      if (!['message', 'reference'].includes(message.kind ?? 'message')) throw new Error('文档类型无效');
+      if (message.versionId !== undefined && (!Number.isSafeInteger(message.versionId) || message.versionId <= 0)) throw new Error('文档版本 ID 无效');
       if (message.kind === 'reference') {
         const reference = message.reference;
         if (message.role !== 'system' || !reference || typeof reference.id !== 'string' || typeof reference.summary !== 'string' || typeof reference.quote !== 'string' ||
           !Array.isArray(reference.sources) || !reference.sources.length || !reference.sources.every((source) => source && typeof source.workspaceId === 'string' &&
             typeof source.conversationId === 'string' && typeof source.documentId === 'string' && typeof source.title === 'string' && typeof source.documentText === 'string' &&
+            (source.versionId === undefined || (Number.isSafeInteger(source.versionId) && source.versionId > 0)) &&
             Number.isInteger(source.start) && Number.isInteger(source.length) && source.start >= 0 && source.length >= 0 && source.start + source.length <= source.documentText.length)) throw new Error('引用快照或来源位置无效');
       }
       documents.add(message.id);
@@ -44,14 +56,14 @@ function validateData(data) {
 function contentOf(data) {
   return {
     nodes: data.nodes.map((node) => {
-      const { collapsed, minimized, maximized, _prevWidth, _prevHeight, _prevX, _prevY, ...content } = node.data;
-      void collapsed; void minimized; void maximized; void _prevWidth; void _prevHeight; void _prevX; void _prevY;
+      const { collapsed, minimized, maximized, ...content } = node.data;
+      void collapsed; void minimized; void maximized;
       return { id: node.id, data: { ...content, done: Boolean(content.done) } };
     }),
     edges: data.edges.map(({ id, source, target, data }) => ({ id, source, target, data })),
     conversations: Object.fromEntries(data.nodes.map(({ id }) => [id, (data.conversations[id]?.messages ?? []).map(({ previousVersions, versionId, ...message }) => {
       void previousVersions; void versionId;
-      return message;
+      return { ...message, kind: message.kind ?? 'message' };
     })])),
   };
 }
@@ -90,11 +102,10 @@ class WorkspaceDatabase {
     try {
       const appId = this.db.prepare('PRAGMA application_id').get().application_id;
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
-      if (!options.create && (appId !== APPLICATION_ID || version !== SCHEMA_VERSION)) throw new Error('这不是支持的 CaudalFlow 工作区文件');
+      if (!options.create && appId !== APPLICATION_ID) throw new Error('这不是支持的 CaudalFlow 工作区文件');
+      if (!options.create && version !== SCHEMA_VERSION) throw new Error('工作区文件版本不受支持，请新建工作区或选择新版文件');
       this.db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;');
       if (options.create) this.initialize(options.metadata);
-      // 摘要是可复用的派生缓存，引用正文仍独立保存在文档版本中。
-      this.db.exec('CREATE TABLE IF NOT EXISTS reference_summaries (key TEXT PRIMARY KEY, summary TEXT NOT NULL, created_at INTEGER NOT NULL)');
       this.metadata = JSON.parse(this.db.prepare('SELECT value FROM workspace_meta WHERE key=?').get('metadata').value);
       fs.mkdirSync(historyDirectory, { recursive: true });
       // ATTACH 配合回滚日志，让工作区和独立历史参与同一事务；不使用破坏跨库原子性的 WAL。
@@ -120,14 +131,40 @@ class WorkspaceDatabase {
       PRAGMA application_id=${APPLICATION_ID}; PRAGMA user_version=${SCHEMA_VERSION};
       CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE conversations (id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, topic TEXT NOT NULL, label TEXT, done INTEGER NOT NULL, color TEXT, metadata_json TEXT NOT NULL);
-      CREATE TABLE conversation_layouts (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, x REAL NOT NULL, y REAL NOT NULL, layout_json TEXT NOT NULL);
-      CREATE TABLE documents (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), created_at INTEGER NOT NULL);
-      CREATE INDEX documents_conversation ON documents(conversation_id);
-      CREATE TABLE document_versions (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, content TEXT NOT NULL, reasoning TEXT, created_at INTEGER NOT NULL, fingerprint TEXT NOT NULL, metadata_json TEXT NOT NULL, UNIQUE(document_id,fingerprint), UNIQUE(document_id,id));
-      CREATE TABLE conversation_documents (conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE, position INTEGER NOT NULL, version_id TEXT NOT NULL, PRIMARY KEY(conversation_id,document_id), UNIQUE(conversation_id,position), FOREIGN KEY(document_id,version_id) REFERENCES document_versions(document_id,id));
-      CREATE TABLE assets (id TEXT PRIMARY KEY, mime_type TEXT NOT NULL, bytes BLOB NOT NULL);
-      CREATE TABLE version_assets (version_id TEXT NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE, asset_id TEXT NOT NULL REFERENCES assets(id), position INTEGER NOT NULL, PRIMARY KEY(version_id,position));
-      CREATE TABLE relations (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, target_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, data_json TEXT NOT NULL);
+      CREATE TABLE conversation_layouts (
+        conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+        x REAL NOT NULL, y REAL NOT NULL, width REAL NOT NULL CHECK(width>0), height REAL NOT NULL CHECK(height>0),
+        z_index INTEGER NOT NULL, collapsed INTEGER NOT NULL, minimized INTEGER NOT NULL);
+      CREATE TABLE documents (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
+        kind TEXT NOT NULL DEFAULT 'message' CHECK(kind IN ('message','reference')),
+        content TEXT NOT NULL, reasoning TEXT, created_at INTEGER NOT NULL,
+        current_version_id INTEGER REFERENCES document_versions(id) DEFERRABLE INITIALLY DEFERRED,
+        reply_to_id TEXT, triggered_by TEXT, reference_for_id TEXT, generation_status TEXT,
+        UNIQUE(conversation_id,position));
+      CREATE TABLE document_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        content TEXT NOT NULL, reasoning TEXT, created_at INTEGER NOT NULL,
+        reply_to_id TEXT, triggered_by TEXT, reference_for_id TEXT, generation_status TEXT);
+      CREATE INDEX document_versions_document ON document_versions(document_id);
+      CREATE TABLE attachments (id INTEGER PRIMARY KEY, mime_type TEXT NOT NULL, bytes BLOB NOT NULL);
+      CREATE TABLE version_attachments (version_id INTEGER NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE, attachment_id INTEGER NOT NULL REFERENCES attachments(id), position INTEGER NOT NULL, PRIMARY KEY(version_id,position));
+      CREATE TABLE document_references (
+        version_id INTEGER PRIMARY KEY REFERENCES document_versions(id) ON DELETE CASCADE,
+        reference_id TEXT NOT NULL, snapshot_key TEXT NOT NULL, summary TEXT NOT NULL, quote TEXT NOT NULL,
+        created_at INTEGER NOT NULL, summary_input_json TEXT);
+      CREATE TABLE reference_sources (
+        version_id INTEGER NOT NULL REFERENCES document_references(version_id) ON DELETE CASCADE, position INTEGER NOT NULL,
+        workspace_id TEXT NOT NULL, conversation_id TEXT NOT NULL, document_id TEXT NOT NULL, source_version_id INTEGER,
+        title TEXT NOT NULL, document_text TEXT NOT NULL, start INTEGER NOT NULL, length INTEGER NOT NULL,
+        PRIMARY KEY(version_id,position));
+      CREATE TABLE reference_source_attachments (
+        version_id INTEGER NOT NULL, source_position INTEGER NOT NULL, position INTEGER NOT NULL,
+        attachment_id INTEGER NOT NULL REFERENCES attachments(id), PRIMARY KEY(version_id,source_position,position),
+        FOREIGN KEY(version_id,source_position) REFERENCES reference_sources(version_id,position) ON DELETE CASCADE);
+      CREATE TABLE relations (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, target_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, position INTEGER NOT NULL, label TEXT);
+      CREATE TABLE reference_summaries (key TEXT PRIMARY KEY, summary TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE generation_drafts (document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE, content TEXT NOT NULL, reasoning TEXT, updated_at INTEGER NOT NULL, images_json TEXT NOT NULL);`);
     this.db.prepare('INSERT INTO workspace_meta VALUES (?,?)').run('metadata', JSON.stringify(metadata));
     this.db.prepare('INSERT INTO workspace_meta VALUES (?,?)').run('revision', '0');
@@ -137,31 +174,27 @@ class WorkspaceDatabase {
   get revision() { return Number(this.db.prepare('SELECT value FROM workspace_meta WHERE key=?').get('revision').value); }
 
   referenceCacheGet(key) {
-    if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key)) throw new Error('摘要标识无效');
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(key)) throw new Error('摘要标识无效');
     return this.db.prepare('SELECT summary FROM reference_summaries WHERE key=?').get(key)?.summary ?? null;
   }
 
   referenceCachePut(key, summary) {
-    if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key) || typeof summary !== 'string' || !summary.trim() || summary.length > 200000) throw new Error('摘要内容无效');
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(key) || typeof summary !== 'string' || !summary.trim() || summary.length > 200000) throw new Error('摘要内容无效');
     this.db.prepare('INSERT OR REPLACE INTO reference_summaries VALUES (?,?,?)').run(key, summary, Date.now());
     this.db.exec('DELETE FROM reference_summaries WHERE key IN (SELECT key FROM reference_summaries ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET 500)');
     return true;
   }
 
-  // 只从组织关系读取当前版本；旧版本仍以相同文档 ID 归组，不复制整份会话。
+  // 当前正文与顺序直接属于文档，画布默认类型不逐条存储。
   load() {
     const data = EMPTY();
-    for (const row of this.db.prepare('SELECT c.*,l.x,l.y,l.layout_json FROM conversations c JOIN conversation_layouts l ON l.conversation_id=c.id ORDER BY c.ordinal').all()) {
-      const layout = JSON.parse(row.layout_json);
-      data.nodes.push({ ...layout.node, id: row.id, type: 'chat', position: { x: row.x, y: row.y }, data: { ...JSON.parse(row.metadata_json), ...layout.data, topic: row.topic, ...(row.label !== null ? { label: row.label } : {}), ...(row.color !== null ? { color: row.color } : {}), done: Boolean(row.done) } });
+    for (const row of this.db.prepare('SELECT c.*,l.x,l.y,l.width,l.height,l.z_index,l.collapsed,l.minimized FROM conversations c JOIN conversation_layouts l ON l.conversation_id=c.id ORDER BY c.ordinal').all()) {
+      data.nodes.push({ id: row.id, type: 'chat', position: { x: row.x, y: row.y }, style: { width: row.width, height: row.height }, zIndex: row.z_index,
+        data: { ...JSON.parse(row.metadata_json), collapsed: Boolean(row.collapsed), minimized: Boolean(row.minimized), maximized: false, topic: row.topic, ...(row.label !== null ? { label: row.label } : {}), ...(row.color !== null ? { color: row.color } : {}), done: Boolean(row.done) } });
       data.conversations[row.id] = { nodeId: row.id, messages: [], isStreaming: false };
     }
-    const images = this.db.prepare('SELECT a.mime_type,a.bytes FROM version_assets va JOIN assets a ON a.id=va.asset_id WHERE va.version_id=? ORDER BY va.position');
-    for (const row of this.db.prepare('SELECT d.*,v.id AS version_id,v.content,v.reasoning,v.metadata_json FROM conversation_documents cd JOIN documents d ON d.id=cd.document_id JOIN document_versions v ON v.id=cd.version_id ORDER BY cd.conversation_id,cd.position').all()) {
-      const message = { id: row.id, role: row.role, timestamp: row.created_at, versionId: row.version_id, content: row.content, ...JSON.parse(row.metadata_json) };
-      if (row.reasoning !== null) message.reasoning = row.reasoning;
-      const attached = images.all(row.version_id).map((image) => ({ mimeType: image.mime_type, base64: Buffer.from(image.bytes).toString('base64') }));
-      if (attached.length) message.images = attached;
+    for (const row of this.db.prepare('SELECT *,current_version_id AS version_id FROM documents ORDER BY conversation_id,position').all()) {
+      const message = this.messageFromRow(row, row.id, row.created_at);
       const draft = this.db.prepare('SELECT * FROM generation_drafts WHERE document_id=?').get(row.id);
       if (draft) {
         message.content = draft.content; message.reasoning = draft.reasoning ?? undefined;
@@ -169,26 +202,72 @@ class WorkspaceDatabase {
       }
       data.conversations[row.conversation_id].messages.push(message);
     }
-    for (const row of this.db.prepare('SELECT * FROM relations ORDER BY ordinal').all()) data.edges.push({ ...JSON.parse(row.data_json), id: row.id, source: row.source_id, target: row.target_id });
+    for (const row of this.db.prepare('SELECT * FROM relations ORDER BY position').all()) data.edges.push({ id: row.id, source: row.source_id, target: row.target_id,
+      sourceHandle: 'right', targetHandle: 'left', type: 'topic', data: row.label === null ? {} : { label: row.label } });
     return { metadata: this.metadata, revision: this.revision, data };
   }
 
-  // 固定版本只插入不覆盖；相同内容可复用原版本，让撤销不制造伪新版本。
+  // 引用主体和来源独立读取，来源被删除后，保留的原文和图片仍可使用。
+  messageFromRow(row, documentId, timestamp) {
+    const message = { id: documentId, role: row.role, kind: row.kind, timestamp, versionId: row.version_id, content: row.content };
+    for (const [column, property] of [['reasoning', 'reasoning'], ['reply_to_id', 'replyToId'], ['triggered_by', 'triggeredBy'], ['reference_for_id', 'referenceForId'], ['generation_status', 'generationStatus']]) {
+      if (row[column] !== null) message[property] = row[column];
+    }
+    const images = this.db.prepare('SELECT a.mime_type,a.bytes FROM version_attachments va JOIN attachments a ON a.id=va.attachment_id WHERE va.version_id=? ORDER BY va.position').all(row.version_id);
+    if (images.length) message.images = images.map((image) => ({ mimeType: image.mime_type, base64: Buffer.from(image.bytes).toString('base64') }));
+    if (row.kind === 'reference') {
+      const reference = this.db.prepare('SELECT * FROM document_references WHERE version_id=?').get(row.version_id);
+      if (!reference) throw new Error('引用内容不存在');
+      const sources = this.db.prepare('SELECT * FROM reference_sources WHERE version_id=? ORDER BY position').all(row.version_id).map((source) => {
+        const sourceImages = this.db.prepare('SELECT a.mime_type,a.bytes FROM reference_source_attachments ra JOIN attachments a ON a.id=ra.attachment_id WHERE ra.version_id=? AND ra.source_position=? ORDER BY ra.position').all(row.version_id, source.position);
+        return { workspaceId: source.workspace_id, conversationId: source.conversation_id, documentId: source.document_id,
+          ...(source.source_version_id !== null ? { versionId: source.source_version_id } : {}), title: source.title,
+          documentText: source.document_text, start: source.start, length: source.length,
+          ...(sourceImages.length ? { images: sourceImages.map((image) => ({ mimeType: image.mime_type, base64: Buffer.from(image.bytes).toString('base64') })) } : {}) };
+      });
+      message.reference = { id: reference.reference_id, snapshotKey: reference.snapshot_key, summary: reference.summary,
+        quote: reference.quote, createdAt: reference.created_at, sources,
+        ...(reference.summary_input_json !== null ? { summaryInput: JSON.parse(reference.summary_input_json) } : {}) };
+      message.content = reference.summary;
+    }
+    return message;
+  }
+
+  // 整数 ID 只负责关联，附件按实际字节复用，不把长哈希当主键。
+  attachment(image) {
+    const bytes = Buffer.from(image.base64, 'base64');
+    const existing = this.db.prepare('SELECT id FROM attachments WHERE mime_type=? AND bytes=?').get(image.mimeType, bytes);
+    return existing?.id ?? this.db.prepare('INSERT INTO attachments(mime_type,bytes) VALUES (?,?)').run(image.mimeType, bytes).lastInsertRowid;
+  }
+
+  // 只比较实际内容；当前版本优先，避免重复保存和撤销产生伪新版本。
   version(documentId, message, importedTime) {
-    const { content, reasoning, timestamp, images = [], id, role, previousVersions, versionId, ...extra } = message;
-    void id; void role; void previousVersions; void versionId;
-    const fingerprint = hash(JSON.stringify({ content, reasoning: reasoning ?? null, images, extra }));
-    const existing = this.db.prepare('SELECT id FROM document_versions WHERE document_id=? AND fingerprint=?').get(documentId, fingerprint);
-    if (existing) return existing.id;
-    const newId = versionId && !this.db.prepare('SELECT id FROM document_versions WHERE id=?').get(versionId) ? versionId : randomUUID();
+    const expected = JSON.stringify(versionContent(message));
+    const candidates = this.db.prepare(`SELECT v.*,v.id AS version_id,d.role,d.kind FROM document_versions v JOIN documents d ON d.id=v.document_id
+      WHERE document_id=? AND v.content=? AND v.reasoning IS ? AND v.reply_to_id IS ? AND v.triggered_by IS ? AND v.reference_for_id IS ? AND v.generation_status IS ?
+      ORDER BY (v.id=?) DESC,v.id DESC`).all(documentId, message.kind === 'reference' ? '' : message.content,
+      message.reasoning ?? null, message.replyToId ?? null, message.triggeredBy ?? null, message.referenceForId ?? null, message.generationStatus ?? null, message.versionId ?? null);
+    for (const row of candidates) {
+      if (JSON.stringify(versionContent(this.messageFromRow(row, documentId, message.timestamp))) === expected) return row.id;
+    }
+    // 撤销可恢复被清理的原编号；已占用编号绝不重绑到另一篇文档。
+    const preferredId = message.versionId && !this.db.prepare('SELECT id FROM document_versions WHERE id=?').get(message.versionId) ? message.versionId : null;
     const alreadyVersioned = this.db.prepare('SELECT 1 FROM document_versions WHERE document_id=? LIMIT 1').get(documentId);
-    this.db.prepare('INSERT INTO document_versions VALUES (?,?,?,?,?,?,?)').run(newId, documentId, content, reasoning ?? null, importedTime ?? (alreadyVersioned ? Date.now() : timestamp), fingerprint, JSON.stringify(extra));
-    images.forEach((image, index) => {
-      const bytes = Buffer.from(image.base64, 'base64');
-      const assetId = hash(Buffer.concat([Buffer.from(image.mimeType), bytes]));
-      this.db.prepare('INSERT OR IGNORE INTO assets VALUES (?,?,?)').run(assetId, image.mimeType, bytes);
-      this.db.prepare('INSERT INTO version_assets VALUES (?,?,?)').run(newId, assetId, index);
+    const newId = Number(this.db.prepare('INSERT INTO document_versions VALUES (?,?,?,?,?,?,?,?,?)').run(preferredId, documentId,
+      message.kind === 'reference' ? '' : message.content, message.reasoning ?? null, importedTime ?? (alreadyVersioned ? Date.now() : message.timestamp),
+      message.replyToId ?? null, message.triggeredBy ?? null, message.referenceForId ?? null, message.generationStatus ?? null).lastInsertRowid);
+    (message.images ?? []).forEach((image, index) => {
+      this.db.prepare('INSERT INTO version_attachments VALUES (?,?,?)').run(newId, this.attachment(image), index);
     });
+    if (message.kind === 'reference') {
+      const reference = message.reference;
+      this.db.prepare('INSERT INTO document_references VALUES (?,?,?,?,?,?,?)').run(newId, reference.id, reference.snapshotKey, reference.summary, reference.quote, reference.createdAt,
+        reference.summaryInput === undefined ? null : JSON.stringify(reference.summaryInput));
+      reference.sources.forEach((source, index) => {
+        this.db.prepare('INSERT INTO reference_sources VALUES (?,?,?,?,?,?,?,?,?,?)').run(newId, index, source.workspaceId, source.conversationId, source.documentId, source.versionId ?? null, source.title, source.documentText, source.start, source.length);
+        (source.images ?? []).forEach((image, position) => this.db.prepare('INSERT INTO reference_source_attachments VALUES (?,?,?,?)').run(newId, index, position, this.attachment(image)));
+      });
+    }
     return newId;
   }
 
@@ -204,46 +283,51 @@ class WorkspaceDatabase {
     const streaming = Object.values(data.conversations).some((conversation) => conversation.isStreaming);
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      // 暂时移除当前选用关系，版本内容保持不可变；所有替换在同一事务内对外不可见。
-      this.db.exec('DELETE FROM conversation_documents; DELETE FROM relations;');
+      // 临时腾出位置，允许消息插入和交换而不触发顺序唯一约束。
+      this.db.exec('UPDATE documents SET position=-position-1; DELETE FROM relations;');
       const present = new Set(data.nodes.map((node) => node.id));
       for (const row of this.db.prepare('SELECT id FROM conversations').all()) if (!present.has(row.id)) this.db.prepare('DELETE FROM conversations WHERE id=?').run(row.id);
       data.nodes.forEach((node, ordinal) => {
-        const { topic, label: nodeLabel, done, color, collapsed, minimized, maximized, _prevWidth, _prevHeight, _prevX, _prevY, ...metadata } = node.data;
+        const { topic, label: nodeLabel, done, color, collapsed, minimized, maximized, ...metadata } = node.data;
         void maximized;
-        const { id, data: ignoredData, position, selected, dragging, resizing, measured, ...rest } = node;
-        void ignoredData; void position; void selected; void dragging; void resizing; void measured;
+        const id = node.id;
         this.db.prepare('INSERT INTO conversations VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ordinal=excluded.ordinal,topic=excluded.topic,label=excluded.label,done=excluded.done,color=excluded.color,metadata_json=excluded.metadata_json').run(id, ordinal, topic, nodeLabel ?? null, done ? 1 : 0, color ?? null, JSON.stringify(metadata));
-        this.db.prepare('INSERT INTO conversation_layouts VALUES (?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET x=excluded.x,y=excluded.y,layout_json=excluded.layout_json').run(id, node.position.x, node.position.y, JSON.stringify({ node: rest, data: { collapsed, minimized, _prevWidth, _prevHeight, _prevX, _prevY } }));
+        const width = Number.isFinite(node.style?.width) && node.style.width > 0 ? node.style.width : 400;
+        const height = Number.isFinite(node.style?.height) && node.style.height > 0 ? node.style.height : 500;
+        this.db.prepare(`INSERT INTO conversation_layouts VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET
+          x=excluded.x,y=excluded.y,width=excluded.width,height=excluded.height,z_index=excluded.z_index,collapsed=excluded.collapsed,minimized=excluded.minimized`).run(
+          id, node.position.x, node.position.y, width, height, node.zIndex ?? 0, collapsed ? 1 : 0, minimized ? 1 : 0);
         const conversation = data.conversations[id];
         const messages = conversation?.messages ?? [];
         const currentDocuments = new Set(messages.map((message) => message.id));
-        for (const row of this.db.prepare('SELECT id FROM documents WHERE conversation_id=?').all()) if (!currentDocuments.has(row.id)) this.db.prepare('DELETE FROM documents WHERE id=?').run(row.id);
+        for (const row of this.db.prepare('SELECT id FROM documents WHERE conversation_id=?').all(id)) if (!currentDocuments.has(row.id)) this.db.prepare('DELETE FROM documents WHERE id=?').run(row.id);
         messages.forEach((message, index) => {
-          this.db.prepare('INSERT INTO documents VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET role=excluded.role').run(message.id, id, message.role, message.timestamp);
-          const owner = this.db.prepare('SELECT conversation_id FROM documents WHERE id=?').get(message.id);
+          this.db.prepare('INSERT INTO documents(id,conversation_id,position,role,kind,content,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET role=excluded.role').run(message.id, id, index, message.role, message.kind ?? 'message', '', message.timestamp);
+          const owner = this.db.prepare('SELECT conversation_id,kind,current_version_id FROM documents WHERE id=?').get(message.id);
           if (owner.conversation_id !== id) throw new Error('同一文档不能属于两个会话');
+          if (owner.kind !== (message.kind ?? 'message')) throw new Error('已有文档不能改变类型');
           for (const old of message.previousVersions ?? []) this.version(message.id, { ...message, ...old, images: message.images ?? [] }, old.timestamp);
           const generating = conversation?.isStreaming && message.id === (conversation.streamingMessageId ?? messages.at(-1)?.id);
           let selectedVersion;
           if (generating) {
-            selectedVersion = this.db.prepare('SELECT id FROM document_versions WHERE document_id=? ORDER BY rowid DESC LIMIT 1').get(message.id)?.id ?? this.version(message.id, { ...message, content: '', reasoning: undefined, images: [] });
+            // 重生成以当前选中版本为基线，不能误取最近创建的其他版本。
+            selectedVersion = owner.current_version_id ?? this.version(message.id, { ...message, content: '', reasoning: undefined, images: [] });
             this.db.prepare('INSERT INTO generation_drafts VALUES (?,?,?,?,?) ON CONFLICT(document_id) DO UPDATE SET content=excluded.content,reasoning=excluded.reasoning,updated_at=excluded.updated_at,images_json=excluded.images_json').run(message.id, message.content, message.reasoning ?? null, Date.now(), JSON.stringify(message.images ?? []));
           } else {
             selectedVersion = this.version(message.id, message);
             this.db.prepare('DELETE FROM generation_drafts WHERE document_id=?').run(message.id);
           }
-          this.db.prepare('INSERT INTO conversation_documents VALUES (?,?,?,?)').run(id, message.id, index, selectedVersion);
+          const saved = this.db.prepare('SELECT * FROM document_versions WHERE id=?').get(selectedVersion);
+          this.db.prepare('UPDATE documents SET position=?,content=?,reasoning=?,current_version_id=?,reply_to_id=?,triggered_by=?,reference_for_id=?,generation_status=? WHERE id=?').run(
+            index, saved.content, saved.reasoning, selectedVersion, saved.reply_to_id, saved.triggered_by, saved.reference_for_id, saved.generation_status, message.id);
         });
       });
       data.edges.forEach((edge, ordinal) => {
-        const { id, source, target, selected, ...rest } = edge;
-        void selected;
-        this.db.prepare('INSERT INTO relations VALUES (?,?,?,?,?)').run(id, source, target, ordinal, JSON.stringify(rest));
+        this.db.prepare('INSERT INTO relations VALUES (?,?,?,?,?)').run(edge.id, edge.source, edge.target, ordinal, edge.data?.label ?? null);
       });
       // 当前未设计固定旧版本引用；保留当前及最近 49 个旧版本，个人历史另有期限。
       for (const row of this.db.prepare('SELECT id FROM documents').all()) {
-        this.db.prepare('DELETE FROM document_versions WHERE id IN (SELECT id FROM document_versions WHERE document_id=? AND id NOT IN (SELECT version_id FROM conversation_documents) ORDER BY rowid DESC LIMIT -1 OFFSET 49)').run(row.id);
+        this.db.prepare('DELETE FROM document_versions WHERE id IN (SELECT id FROM document_versions WHERE document_id=? AND id NOT IN (SELECT current_version_id FROM documents WHERE current_version_id IS NOT NULL) ORDER BY id DESC LIMIT -1 OFFSET 49)').run(row.id);
       }
       if (history && (!streaming || historyAfter) && before !== after) {
         let beforeJson = JSON.stringify(historyBefore ?? previous);
@@ -280,13 +364,13 @@ class WorkspaceDatabase {
         this.pruneHistory();
       }
       // 附件只有在所有功能版本都不再使用时才清理，个人历史自带恢复所需的图片数据。
-      this.db.exec('DELETE FROM assets WHERE id NOT IN (SELECT asset_id FROM version_assets)');
+      this.db.exec('DELETE FROM attachments WHERE id NOT IN (SELECT attachment_id FROM version_attachments UNION SELECT attachment_id FROM reference_source_attachments)');
       const revision = this.revision + 1;
       this.db.prepare('UPDATE workspace_meta SET value=? WHERE key=?').run(String(revision), 'revision');
       this.metadata = { ...this.metadata, updatedAt: Date.now() };
       this.db.prepare('UPDATE workspace_meta SET value=? WHERE key=?').run(JSON.stringify(this.metadata), 'metadata');
       this.db.exec('COMMIT');
-      const versions = Object.fromEntries(this.db.prepare('SELECT document_id,version_id FROM conversation_documents').all().map((row) => [row.document_id, row.version_id]));
+      const versions = Object.fromEntries(this.db.prepare('SELECT id,current_version_id FROM documents').all().map((row) => [row.id, row.current_version_id]));
       return { revision, versions };
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -348,15 +432,15 @@ class WorkspaceDatabase {
   }
 
   listVersions(documentId) {
-    return this.db.prepare('SELECT id,created_at AS createdAt,substr(content,1,100) AS preview FROM document_versions WHERE document_id=? ORDER BY rowid DESC').all(documentId);
+    return this.db.prepare('SELECT v.id,v.created_at AS createdAt,substr(COALESCE(r.summary,v.content),1,100) AS preview FROM document_versions v LEFT JOIN document_references r ON r.version_id=v.id WHERE v.document_id=? ORDER BY v.id DESC').all(documentId);
   }
 
   // 切换版本只读取已保存结果，由上层内容操作选择它，不重新请求模型。
   readVersion(documentId, versionId) {
-    const row = this.db.prepare('SELECT d.role,d.created_at AS document_created_at,v.* FROM document_versions v JOIN documents d ON d.id=v.document_id WHERE v.document_id=? AND v.id=?').get(documentId, versionId);
+    if (!Number.isSafeInteger(versionId) || versionId <= 0) throw new Error('文档版本 ID 无效');
+    const row = this.db.prepare('SELECT d.role,d.kind,d.created_at AS document_created_at,v.*,v.id AS version_id FROM document_versions v JOIN documents d ON d.id=v.document_id WHERE v.document_id=? AND v.id=?').get(documentId, versionId);
     if (!row) throw new Error('文档版本不存在');
-    const images = this.db.prepare('SELECT a.mime_type,a.bytes FROM version_assets va JOIN assets a ON a.id=va.asset_id WHERE va.version_id=? ORDER BY va.position').all(versionId).map((asset) => ({ mimeType: asset.mime_type, base64: Buffer.from(asset.bytes).toString('base64') }));
-    return { ...JSON.parse(row.metadata_json), id: documentId, versionId, role: row.role, timestamp: row.document_created_at, content: row.content, ...(row.reasoning !== null ? { reasoning: row.reasoning } : {}), ...(images.length ? { images } : {}) };
+    return this.messageFromRow(row, documentId, row.document_created_at);
   }
 
   rename(name) {

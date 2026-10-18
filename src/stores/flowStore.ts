@@ -40,8 +40,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (!node || node.data.minimized || node.data.collapsed) return;
     set({ nodes: nodes.map((item) => item.id === activeNodeId ? { ...item, data: {
       ...item.data, minimized: true, collapsed: false, maximized: false,
-      _prevWidth: typeof item.style?.width === 'number' ? item.style.width : 400,
-      _prevHeight: typeof item.style?.height === 'number' ? item.style.height : 500,
     } } : item) });
   },
 
@@ -54,7 +52,18 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) });
+    const nodes = applyNodeChanges(changes, get().nodes);
+    // 用户调整尺寸才更新展开尺寸；紧凑卡片和自动测量不能覆盖它。
+    const resized = changes.filter((change) => change.type === 'dimensions' && change.setAttributes);
+    set({ nodes: nodes.map((node) => {
+      if (node.data.collapsed || node.data.minimized) return node;
+      const change = resized.find((item) => item.type === 'dimensions' && item.id === node.id);
+      if (!change || change.type !== 'dimensions' || !change.dimensions) return node;
+      return { ...node, style: { ...node.style,
+        ...(change.setAttributes === true || change.setAttributes === 'width' ? { width: change.dimensions.width } : {}),
+        ...(change.setAttributes === true || change.setAttributes === 'height' ? { height: change.dimensions.height } : {}),
+      } };
+    }) });
   },
 
   onEdgesChange: (changes) => {
@@ -109,7 +118,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   addEdge: (source, target, label) => {
     const edge: TopicEdge = {
-      id: `e-${source}-${target}`,
+      // 两端节点单独保存，连线使用独立的短标识。
+      id: nanoid(12),
       source,
       target,
       sourceHandle: 'right',

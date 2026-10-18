@@ -26,8 +26,8 @@ function sanitizeNodes(nodes: WorkspaceData['nodes'], edges: WorkspaceData['edge
         ...n,
         style: {
           ...n.style,
-          width: (n.data?._prevWidth as number) || 400,
-          height: (n.data?._prevHeight as number) || 500,
+          width: typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 400,
+          height: typeof h === 'number' && Number.isFinite(h) && h > 0 ? h : 500,
         },
         // 紧凑状态使用固定尺寸呈现，重载后仍保留最小化；只清掉临时最大化状态。
         data: { ...n.data, maximized: false },
