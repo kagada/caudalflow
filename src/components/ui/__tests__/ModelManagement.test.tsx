@@ -31,14 +31,14 @@ async function input(label: string, value: string) {
 it('syncs into a cancellable selection and only enables checked models on save', async () => {
   vi.mocked(fetchModels).mockResolvedValue([{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }]);
   await act(async () => root.render(<ModelManagement />));
-  await click('同步模型');
+  await click('模型列表');
   expect(useModelStore.getState().providers[0].models).toEqual([]);
-  await act(async () => document.querySelector<HTMLInputElement>('[aria-label="选择同步模型"] input[type="checkbox"]')!.click());
+  await act(async () => document.querySelector<HTMLInputElement>('[role="dialog"][aria-label="模型列表"] input[type="checkbox"]')!.click());
   await click('保存选择');
   expect(useModelStore.getState().providers[0].models.map((model) => model.enabled)).toEqual([true, false]);
   await click('设为默认');
   expect(useModelStore.getState().defaultModel?.modelId).toBe('one');
-  await click('同步模型'); await click('取消');
+  await click('模型列表'); await click('取消');
   expect(useModelStore.getState().providers[0].models[0].enabled).toBe(true);
 });
 
@@ -46,8 +46,16 @@ it('offers manual entry when synchronization fails, tests the chosen ID, and sel
   vi.mocked(fetchModels).mockRejectedValue(new Error('HTTP 404'));
   vi.mocked(testConnection).mockResolvedValue({ success: true, message: 'ok' });
   await act(async () => root.render(<ModelManagement />));
-  await click('同步模型'); expect(document.querySelector('[role="status"]')?.textContent).toContain('HTTP 404');
-  await click('手动添加模型'); await input('新模型 ID', 'manual-id'); await input('新模型名称', 'Manual Model'); await click('添加并启用');
+  await click('模型列表'); expect(document.querySelector('[role="status"]')?.textContent).toContain('HTTP 404');
+  await click('自定模型');
+  expect(document.querySelector('[role="dialog"][aria-label="自定模型"]')).not.toBeNull();
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('新模型 ID');
+  await input('新模型 ID', 'discarded'); await click('取消');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(useModelStore.getState().providers[0].models).toEqual([]);
+  await click('自定模型');
+  expect(document.querySelector<HTMLInputElement>('[aria-label="新模型 ID"]')!.value).toBe('');
+  await input('新模型 ID', 'manual-id'); await input('新模型名称', 'Manual Model'); await click('添加并启用');
   await click('测试连接'); expect(testConnection).toHaveBeenCalledWith('https://example.test', 'secret', 'manual-id');
   useFlowStore.setState({ nodes: [{ id: 'a', type: 'chat', position: { x: 0, y: 0 }, data: { topic: 'A' } }] });
   await act(async () => root.render(<ConversationModelPicker nodeId="a" disabled={false} />));
@@ -62,8 +70,8 @@ it('ignores a synchronization result after credentials are edited', async () => 
   let finish!: (models: { id: string; name: string }[]) => void;
   vi.mocked(fetchModels).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
   await act(async () => root.render(<ModelManagement />));
-  await click('同步模型'); await input('供应商 API 密钥', 'changed');
+  await click('模型列表'); await input('供应商 API 密钥', 'changed');
   await act(async () => finish([{ id: 'old', name: 'Old' }]));
-  expect(document.querySelector('[aria-label="选择同步模型"]')).toBeNull();
+  expect(document.querySelector('[role="dialog"][aria-label="模型列表"]')).toBeNull();
   expect(useModelStore.getState().providers[0].models).toEqual([]);
 });

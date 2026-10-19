@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Eye, EyeOff, Plus, RefreshCw, X } from 'lucide-react';
 import { useModelStore } from '../../stores/modelStore';
 import { fetchModels, testConnection } from '../../services/providers/api';
@@ -6,6 +6,16 @@ import type { ManagedModel } from '../../types/chat';
 
 const field = 'w-full rounded-xl border border-border bg-surface-800 px-3 py-2 text-sm focus:outline-none focus:border-accent-500';
 const button = 'rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-700 disabled:opacity-40';
+
+// 模型列表和自定模型共用独立弹窗，保持关闭方式、间距和操作位置一致。
+function ModelDialog({ title, label, onClose, children }: { title: string; label: string; onClose: () => void; children: ReactNode }) {
+  return <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/50 p-5" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
+    <div role="dialog" aria-modal="true" aria-label={label} className="w-full max-w-xl max-h-[calc(100vh-2.5rem)] overflow-y-auto rounded-2xl border border-border bg-surface-900 p-5 shadow-2xl space-y-4">
+      <header className="flex items-center justify-between font-semibold">{title}<button aria-label={`关闭${label}`} onClick={onClose}><X size={18} /></button></header>
+      {children}
+    </div>
+  </div>;
+}
 
 // 供应商配置只写本机目录，同步仅提供候选项，启用状态由用户决定。
 export function ModelManagement() {
@@ -18,6 +28,7 @@ export function ModelManagement() {
   const [candidates, setCandidates] = useState<ManagedModel[]>([]);
   const [search, setSearch] = useState('');
   const [manual, setManual] = useState(false);
+  const [manualError, setManualError] = useState('');
   const [modelId, setModelId] = useState('');
   const [modelName, setModelName] = useState('');
   const [testModel, setTestModel] = useState(provider.models[0]?.id ?? '');
@@ -35,20 +46,20 @@ export function ModelManagement() {
         const entries = new Map(provider.models.map((model) => [model.id, model]));
         for (const model of fetched) if (!entries.has(model.id)) entries.set(model.id, { ...model, enabled: false });
         setCandidates([...entries.values()]); setSearch(''); setDialog(true);
-        if (!fetched.length) setResult('端点未返回模型，可使用 + 手动添加。');
+        if (!fetched.length) setResult('端点未返回模型，可使用“自定模型”添加。');
       } else {
         const response = await testConnection(provider.endpoint, provider.apiKey, testModel);
         if (current === version.current) setResult(response.success ? '连接成功：模型已返回有效回复。' : `连接失败：${response.message}`);
       }
     } catch (error) {
-      if (current === version.current) setResult(`同步失败：${error instanceof Error ? error.message : String(error)}。可以使用 + 手动添加模型。`);
+      if (current === version.current) setResult(`获取模型列表失败：${error instanceof Error ? error.message : String(error)}。可以使用“自定模型”添加。`);
     } finally { setBusy(false); }
   }
 
   function addModel() {
     const id = modelId.trim();
     if (!id) return;
-    if (provider.models.some((model) => model.id === id)) { setResult('该模型 ID 已存在，请在列表中启用。'); return; }
+    if (provider.models.some((model) => model.id === id)) { setManualError('该模型 ID 已存在，请在列表中启用。'); return; }
     updateProvider(provider.id, { models: [...provider.models, { id, name: modelName.trim() || id, enabled: true }] });
     setTestModel(id); setManual(false); setModelId(''); setModelName(''); setResult('模型已添加并启用，可测试连接或设为默认模型。');
   }
@@ -62,11 +73,22 @@ export function ModelManagement() {
       <label className="block space-y-2 text-sm">API 地址<input aria-label="供应商 API 地址" className={field} value={provider.endpoint} onChange={(e) => change(provider.id, { endpoint: e.target.value })} placeholder="https://api.deepseek.com" /></label>
       <div className="flex gap-2"><input aria-label="测试模型 ID" className={field} placeholder="输入用于测试的模型 ID" value={testModel} onChange={(e) => { version.current++; setResult(''); setTestModel(e.target.value); }} /><button className={`${button} shrink-0`} disabled={busy || !provider.endpoint.trim() || !provider.apiKey.trim() || !testModel.trim()} onClick={() => void request(false)}>测试连接</button></div>
       {result && <p role="status" className="text-sm text-accent-400 break-words">{result}</p>}
-      <div className="flex items-center gap-2"><h4 className="flex-1 font-medium">模型 <span className="text-text-muted text-xs">{provider.models.filter((model) => model.enabled).length} 个已启用</span></h4><button className={`${button} flex items-center gap-2`} disabled={busy || !provider.endpoint.trim() || !provider.apiKey.trim()} onClick={() => void request(true)}><RefreshCw size={14} className={busy ? 'animate-spin' : ''} />同步模型</button><button aria-label="手动添加模型" className={button} onClick={() => { setManual(!manual); setResult(''); }}><Plus size={16} /></button></div>
-      {manual && <div className="rounded-xl border border-border p-3 space-y-3"><input aria-label="新模型 ID" className={field} placeholder="模型 ID（必填）" value={modelId} onChange={(e) => setModelId(e.target.value)} /><input aria-label="新模型名称" className={field} placeholder="模型名称（可选）" value={modelName} onChange={(e) => setModelName(e.target.value)} /><button className={button} disabled={!modelId.trim()} onClick={addModel}>添加并启用</button></div>}
-      <div className="rounded-xl border border-border divide-y divide-border">{!provider.models.length && <p className="p-5 text-sm text-text-muted">暂无模型。同步模型后选择启用，或点击 + 手动添加。</p>}{provider.models.map((model) => <div key={model.id} className="flex items-center gap-3 p-3"><label className="flex min-w-0 flex-1 items-center gap-3"><input aria-label={`启用 ${model.id}`} type="checkbox" checked={model.enabled} onChange={(e) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item) })} /><span className="min-w-0"><span className="block truncate text-sm">{model.name}</span><span className="block truncate text-xs text-text-muted">{model.id}</span></span></label><button className={button} disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button></div>)}</div>
+      <div className="flex items-center gap-2"><h4 className="flex-1 font-medium">模型 <span className="text-text-muted text-xs">{provider.models.filter((model) => model.enabled).length} 个已启用</span></h4><button className={`${button} flex items-center gap-2`} disabled={busy || !provider.endpoint.trim() || !provider.apiKey.trim()} onClick={() => void request(true)}><RefreshCw size={14} className={busy ? 'animate-spin' : ''} />模型列表</button><button aria-label="自定模型" className={`${button} flex items-center gap-2`} onClick={() => { setManual(true); setModelId(''); setModelName(''); setManualError(''); setResult(''); }}><Plus size={16} />自定模型</button></div>
+      {manual && <ModelDialog title="自定模型" label="自定模型" onClose={() => setManual(false)}>
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); addModel(); }}>
+          <label className="block space-y-2 text-sm">模型 ID（必填）<input autoFocus aria-label="新模型 ID" className={field} placeholder="输入模型 ID" value={modelId} onChange={(event) => { setModelId(event.target.value); setManualError(''); }} /></label>
+          <label className="block space-y-2 text-sm">模型名称（可选）<input aria-label="新模型名称" className={field} placeholder="默认使用模型 ID" value={modelName} onChange={(event) => setModelName(event.target.value)} /></label>
+          {manualError && <p role="alert" className="text-sm text-red-400">{manualError}</p>}
+          <footer className="flex justify-end gap-2"><button type="button" className={button} onClick={() => setManual(false)}>取消</button><button type="submit" className={button} disabled={!modelId.trim()}>添加并启用</button></footer>
+        </form>
+      </ModelDialog>}
+      <div className="rounded-xl border border-border divide-y divide-border">{!provider.models.length && <p className="p-5 text-sm text-text-muted">暂无模型。打开“模型列表”选择启用，或通过“自定模型”添加。</p>}{provider.models.map((model) => <div key={model.id} className="flex items-center gap-3 p-3"><label className="flex min-w-0 flex-1 items-center gap-3"><input aria-label={`启用 ${model.id}`} type="checkbox" checked={model.enabled} onChange={(e) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item) })} /><span className="min-w-0"><span className="block truncate text-sm">{model.name}</span><span className="block truncate text-xs text-text-muted">{model.id}</span></span></label><button className={button} disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button></div>)}</div>
       <p className="text-xs text-text-muted">未指定模型的会话使用默认模型。关闭已选模型后，会话保留选择并提示重新启用。</p>
-      {dialog && <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/50 p-5" onKeyDown={(e) => { if (e.key === 'Escape') setDialog(false); }}><div role="dialog" aria-modal="true" aria-label="选择同步模型" className="w-full max-w-xl rounded-2xl border border-border bg-surface-900 p-5 shadow-2xl space-y-4"><header className="flex justify-between font-semibold">DeepSeek 模型 · {candidates.length}<button aria-label="关闭模型选择" onClick={() => setDialog(false)}><X size={18} /></button></header><input autoFocus aria-label="搜索模型" className={field} placeholder="搜索模型…" value={search} onChange={(e) => setSearch(e.target.value)} /><div className="max-h-72 overflow-y-auto space-y-2">{candidates.filter((model) => `${model.id} ${model.name}`.toLowerCase().includes(search.toLowerCase())).map((model) => <label key={model.id} className={`flex gap-3 rounded-xl p-3 ${model.enabled ? 'bg-accent-500/10' : 'bg-surface-800'}`}><input type="checkbox" checked={model.enabled} onChange={(e) => setCandidates((items) => items.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item))} /><span className="min-w-0 text-sm break-all">{model.name}<small className="block text-text-muted">{model.id}</small></span></label>)}</div><footer className="flex justify-end gap-2"><button className={button} onClick={() => setDialog(false)}>取消</button><button className={button} onClick={() => { updateProvider(provider.id, { models: candidates }); setDialog(false); }}>保存选择</button></footer></div></div>}
+      {dialog && <ModelDialog title={`DeepSeek 模型 · ${candidates.length}`} label="模型列表" onClose={() => setDialog(false)}>
+        <input autoFocus aria-label="搜索模型" className={field} placeholder="搜索模型…" value={search} onChange={(event) => setSearch(event.target.value)} />
+        <div className="max-h-72 overflow-y-auto space-y-2">{candidates.filter((model) => `${model.id} ${model.name}`.toLowerCase().includes(search.toLowerCase())).map((model) => <label key={model.id} className={`flex gap-3 rounded-xl p-3 ${model.enabled ? 'bg-accent-500/10' : 'bg-surface-800'}`}><input type="checkbox" checked={model.enabled} onChange={(event) => setCandidates((items) => items.map((item) => item.id === model.id ? { ...item, enabled: event.target.checked } : item))} /><span className="min-w-0 text-sm break-all">{model.name}<small className="block text-text-muted">{model.id}</small></span></label>)}</div>
+        <footer className="flex justify-end gap-2"><button className={button} onClick={() => setDialog(false)}>取消</button><button className={button} onClick={() => { updateProvider(provider.id, { models: candidates }); setDialog(false); }}>保存选择</button></footer>
+      </ModelDialog>}
     </section>
   </div>;
 }
