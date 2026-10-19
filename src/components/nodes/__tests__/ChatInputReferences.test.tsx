@@ -9,6 +9,8 @@ import { sampleReference } from '../../../services/__tests__/referenceFixtures';
 import { useChatStore } from '../../../stores/chatStore';
 import { useFlowStore } from '../../../stores/flowStore';
 
+vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
+
 let container: HTMLDivElement; let root: Root;
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); container = document.createElement('div'); document.body.append(container); root = createRoot(container); useChatStore.setState({ conversations: {} }); useFlowStore.setState({ nodes: [] }); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });

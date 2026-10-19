@@ -1,3 +1,4 @@
+import { ModelManagement } from './ModelManagement';
 import { useTranslation } from 'react-i18next';
 import { X, Sun, Moon, Monitor, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -31,13 +32,13 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
   const [modelsError, setModelsError] = useState<string | null>(null);
   const requestVersion = useRef(0);
   const isOpenAICompatible = ['custom', 'openai', 'deepseek'].includes(config.providerId);
-  const [tab, setTab] = useState(new URLSearchParams(location.search).get('section') === 'prompts' ? 'prompts' : 'general');
+  const [tab, setTab] = useState(['prompts', 'models'].includes(new URLSearchParams(location.search).get('section') ?? '') ? new URLSearchParams(location.search).get('section')! : 'general');
   const close = () => standalone ? window.close() : setShowSettings(false);
   useEffect(() => {
     const change = (event: Event) => {
       const section = (event as CustomEvent<string>).detail;
       if (section === 'presets') useSettingsStore.getState().setShowPromptSettings(true);
-      else setTab(section === 'prompts' ? 'prompts' : 'general');
+      else setTab(['prompts', 'models'].includes(section) ? section : 'general');
     };
     window.addEventListener('caudalflow:settings-section', change);
     return () => window.removeEventListener('caudalflow:settings-section', change);
@@ -109,9 +110,9 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
           <X size={18} />
         </button>
       </div>
-      <nav className="flex gap-2 border-b border-border px-4 py-2"><button aria-pressed={tab === 'general'} onClick={() => setTab('general')} className="rounded-lg px-3 py-2 hover:bg-surface-800">常规设置</button><button aria-pressed={tab === 'prompts'} onClick={() => setTab('prompts')} className="rounded-lg px-3 py-2 hover:bg-surface-800">内置提示词</button></nav>
+      <nav className="flex flex-wrap gap-2 border-b border-border px-4 py-2"><button aria-pressed={tab === 'general'} onClick={() => setTab('general')} className="rounded-lg px-3 py-2 hover:bg-surface-800">常规设置</button><button aria-pressed={tab === 'prompts'} onClick={() => setTab('prompts')} className="rounded-lg px-3 py-2 hover:bg-surface-800">内置提示词</button><button aria-pressed={tab === 'models'} onClick={() => setTab('models')} className="rounded-lg px-3 py-2 hover:bg-surface-800">模型管理</button></nav>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'prompts' ? <BuiltinPromptSettings /> : <div className="mx-auto max-w-3xl p-5 space-y-4">
+      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'models' ? <ModelManagement /> : tab === 'prompts' ? <BuiltinPromptSettings /> : <div className="mx-auto max-w-3xl p-5 space-y-4">
         <button onClick={() => useSettingsStore.getState().setShowPromptSettings(true)} className="w-full rounded-lg border border-border bg-surface-800 px-3 py-2 text-left text-sm hover:bg-surface-700">{t('menu.managePrompts')}</button>
         {/* Theme Section */}
         <div className="border-b border-border pb-4">
@@ -134,6 +135,7 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
           </div>
         </div>
 
+        <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm">旧版模型配置与生成参数</summary><p className="my-3 text-xs text-text-muted">新模型请前往“模型管理”配置并设为默认；未设新默认时，继续使用这里的旧版配置。生成参数对所有模型生效。</p>
         {/* LLM Provider Section */}
         <div>
           <label htmlFor="llm-provider" className={labelClass}>{t('settings.llmProvider')}</label>
@@ -325,6 +327,7 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
           </div>
         )}
 
+        </details>
         {/* Display Settings */}
         <div className="border-t border-border pt-4">
           <h3 className="text-xs font-semibold text-text-secondary mb-3">{t('settings.display')}</h3>

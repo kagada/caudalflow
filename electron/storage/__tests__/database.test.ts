@@ -24,6 +24,21 @@ describe('SQLite workspace and independent local history', () => {
   });
   afterEach(() => { workspace?.close(); rmSync(root, { recursive: true, force: true }); });
 
+  it('preserves portable model identifiers across workspace reload and undo', () => {
+    const data = example(); workspace.save(data);
+    data.nodes[0].data.modelSelection = { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'my-model' };
+    workspace.save(data);
+    expect(workspace.load().data.nodes[0].data.modelSelection).toEqual(data.nodes[0].data.modelSelection);
+    const event = workspace.listHistory()[0];
+    const history = workspace.readHistory(event.id);
+    expect(history.after.nodes[0].data.modelSelection).toEqual(data.nodes[0].data.modelSelection);
+    workspace.restoreHistory(event.id, 'before');
+    expect(workspace.load().data.nodes[0].data.modelSelection).toBeUndefined();
+    workspace.restoreHistory(event.id, 'after');
+    expect(workspace.load().data.nodes[0].data.modelSelection).toEqual(data.nodes[0].data.modelSelection);
+    expect(JSON.stringify(workspace.load().data)).not.toMatch(/apiKey|endpoint/);
+  });
+
   it('persists optional JSON request usage across versions, reload and deletion without creating content history', () => {
     const data = example(); workspace.save(data);
     const originalVersion = workspace.load().data.conversations.c1.messages[1].versionId;

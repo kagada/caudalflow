@@ -1,3 +1,4 @@
+import { resolveModelConfig } from './modelConfig';
 import { nanoid } from 'nanoid';
 import type { ChatMessage, ContentReference, ReferenceSelection, ReferenceSource } from '../types/chat';
 import { useChatStore } from '../stores/chatStore';
@@ -36,7 +37,7 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
       if (existing) { cache.set(key, existing); return existing; }
     }
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('工作区已切换，请重新复制引用');
-    const config = useSettingsStore.getState().llmConfig;
+    const config = resolveModelConfig(target?.nodeId);
     const provider = getProvider(config.providerId);
     if (!provider) throw new Error('请先配置可用的模型，再生成引用摘要');
     const generate = (input: ChatMessage[], instruction: string, purpose: 'reference_summary' | 'summary_compression') => new Promise<string>((resolve, reject) => {
@@ -116,7 +117,8 @@ export async function resolveReference(reference: ContentReference, target?: Usa
   // 摘要优先精简，硬上限只用于决定是否重试压缩。
   const maxChars = REFERENCE_SUMMARY_MAX_CHARS;
   const prompt = renderSummaryPrompt(settings.builtinPrompts?.referenceSummary ?? DEFAULT_BUILTIN_PROMPTS.referenceSummary, sourceChars, maxChars);
-  const key = await referenceKey(JSON.stringify({ snapshot: reference.snapshotKey, prompt, maxChars, model: settings.llmConfig.model, provider: settings.llmConfig.providerId, endpoint: settings.llmConfig.endpoint }));
+  const config = resolveModelConfig(target?.nodeId);
+  const key = await referenceKey(JSON.stringify({ snapshot: reference.snapshotKey, prompt, maxChars, model: config.model, provider: config.providerId, endpoint: config.endpoint }));
   const context: ChatMessage[] = reference.summaryInput.map((message, index) => ({ ...message, id: `snapshot-${index}`, timestamp: 0 }));
   const summary = await summarize(key, context, useWorkspaceStore.getState().activeWorkspaceId ?? '', prompt, maxChars, target);
   const { summaryInput, ...resolved } = reference; void summaryInput;

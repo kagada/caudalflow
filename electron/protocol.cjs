@@ -37,7 +37,7 @@ function createProtocolHandler(distDir, fetchRemote, storage, clipboard, windows
         if (request.method !== 'POST' || !request.headers.get('content-type')?.startsWith('application/json')) return new Response('Method not allowed', { status: 405 });
         if (request.headers.get('origin') && request.headers.get('origin') !== APP_ORIGIN) return new Response('Forbidden', { status: 403 });
         const { section } = await request.json();
-        await windows.openSettings(['general', 'prompts', 'presets'].includes(section) ? section : 'general');
+        await windows.openSettings(['general', 'prompts', 'presets', 'models'].includes(section) ? section : 'general');
         return Response.json({ ok: true });
       }
       if (url.pathname === '/api/clipboard' && clipboard) {

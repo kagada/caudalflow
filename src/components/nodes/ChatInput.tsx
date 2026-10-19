@@ -1,6 +1,7 @@
+import { ConversationModelPicker } from './ConversationModelPicker';
 import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Send, Square, Paperclip, X } from 'lucide-react';
+import { ArrowUp, Square, Plus, X } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import type { ContentReference } from '../../types/chat';
 import { readReferenceClipboard } from '../../services/referenceClipboard';
@@ -95,7 +96,7 @@ export function ChatInput({
 
   return (
     <div
-      className={`nowheel nodrag nopan border-t border-border p-4 transition ${
+      className={`nowheel nodrag nopan m-3 rounded-3xl border border-border bg-surface-800 p-3 shadow-sm transition ${
         isDragging ? 'bg-surface-700' : ''
       }`}
       onDragOver={(e) => {
@@ -134,7 +135,7 @@ export function ChatInput({
         </div>
       )}
 
-      <div className="flex items-end gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
         
 
         <textarea
@@ -145,13 +146,13 @@ export function ChatInput({
           onPaste={handlePaste}
           placeholder={t('chat.askSomething')}
           rows={1}
-          className="nowheel flex-1 resize-none bg-surface-800 text-base text-text-primary rounded-lg px-4 py-3 placeholder-text-muted border border-border focus:border-accent-500/50 focus:outline-none transition-colors"
-          style={{ minHeight: '36px', maxHeight: '100px' }}
+          className="nowheel w-full resize-none bg-transparent text-base text-text-primary px-2 py-2 placeholder-text-muted focus:outline-none"
+          style={{ minHeight: '36px', maxHeight: '160px' }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
             target.style.height = 'auto';
             target.style.height =
-              Math.min(target.scrollHeight, 100) + 'px';
+              Math.min(target.scrollHeight, 160) + 'px';
           }}
         />
 
@@ -174,9 +175,10 @@ export function ChatInput({
               : t('chat.imagesNotSupported')
           }
         >
-          <Paperclip size={16} />
+          <Plus size={18} />
         </button>
 
+        <div className="min-w-0 flex-1 flex justify-end"><ConversationModelPicker nodeId={nodeId} disabled={isStreaming || sending} /></div>
         {isStreaming ? (
           <button
             onClick={onCancel}
@@ -188,9 +190,9 @@ export function ChatInput({
           <button
             onClick={handleSend}
             disabled={sending || (!input.trim() && images.length === 0 && references.length === 0)}
-            className="shrink-0 p-2 rounded-lg bg-accent-500/20 text-accent-400 hover:bg-accent-500/30 transition-colors disabled:opacity-30"
+            className="shrink-0 p-2 rounded-full bg-accent-500 text-white hover:opacity-90 transition-colors disabled:opacity-30"
           >
-            <Send size={16} />
+            <ArrowUp size={18} />
           </button>
         )}
       </div>

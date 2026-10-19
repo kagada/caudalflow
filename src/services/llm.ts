@@ -1,3 +1,4 @@
+import { resolveModelConfig } from './modelConfig';
 import type { ChatMessage, LLMConfig } from '../types/chat';
 import type { StreamCallbacks } from './providers/types';
 import { getProvider } from './providers/registry';
@@ -13,7 +14,9 @@ export function streamChat(
   signal: AbortSignal,
   usageTarget?: UsageTarget,
 ) {
-  const config = useSettingsStore.getState().llmConfig;
+  let config: LLMConfig;
+  try { config = resolveModelConfig(usageTarget?.nodeId); }
+  catch (error) { callbacks.onError(error instanceof Error ? error : new Error(String(error))); return; }
   const provider = getProvider(config.providerId);
 
   if (!provider) {
@@ -39,7 +42,8 @@ export function generateTitle(
   onTitle: (title: string) => void,
   usageTarget?: UsageTarget,
 ): void {
-  const config = useSettingsStore.getState().llmConfig;
+  let config: LLMConfig;
+  try { config = resolveModelConfig(usageTarget?.nodeId); } catch { return; }
   const provider = getProvider(config.providerId);
   if (!provider) return;
 

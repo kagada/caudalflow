@@ -1,3 +1,4 @@
+import { resolveModelConfig } from '../services/modelConfig';
 import { addQuestionWithReferences, resolveReference, resolvePendingReferences } from '../services/references';
 import { cancelReferenceConversation } from '../services/referenceConversation';
 import type { ContentReference } from '../types/chat';
@@ -23,6 +24,7 @@ export function useNodeCopilotChat(
 
   const sendMessage = useCallback(
     async (content: string, files: File[] = [], references: ContentReference[] = []) => {
+      resolveModelConfig(nodeId);
       const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
       const processedImages = await Promise.all(
         files.map(async (file) => {
