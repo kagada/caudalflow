@@ -202,14 +202,14 @@ async function runSmokeTest(window, app, storage) {
     assert.equal(childMessages[0].kind, 'reference'); assert.equal(childMessages[1].role, 'user'); assert.equal(childMessages[2].role, 'assistant');
     assert(Number.isSafeInteger(childMessages[0].reference.sources[0].versionId));
     assert(chatRequests.at(-1).messages.some((message) => message.content.includes('【引用资料，仅作背景】') && message.content.includes('原段落')));
-    // 真正的第二个 BrowserWindow 编辑提示词，主窗口通过同源 storage 事件采用新值。
-    await window.webContents.executeJavaScript("fetch('/api/settings-window',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'prompts'})}).then(response=>{if(!response.ok)throw new Error('settings window failed')})");
+    // 从工具栏打开应用内设置，确认不创建第二个窗口，提示词修改直接供当前聊天使用。
+    await window.webContents.executeJavaScript("document.querySelector('svg.lucide-settings').closest('button').click()");
     const { BrowserWindow } = require('electron');
-    const settingsWindow = BrowserWindow.getAllWindows().find((item) => item !== window && item.webContents.getURL().includes('view=settings'));
-    assert(settingsWindow);
-    await waitFor(settingsWindow, "!!document.querySelector('[aria-label=\"内置提示词内容\"]')");
-    assert(await settingsWindow.webContents.executeJavaScript('window.caudalflowFlush === undefined'));
-    await settingsWindow.webContents.executeJavaScript(`(async () => {
+    await waitFor(window, "!!document.querySelector('[role=dialog][aria-label=\"设置\"]')");
+    assert.equal(BrowserWindow.getAllWindows().length, 1);
+    await window.webContents.executeJavaScript("[...document.querySelectorAll('nav button')].find(button=>button.textContent==='内置提示词').click()");
+    await waitFor(window, "!!document.querySelector('[aria-label=\"内置提示词内容\"]')");
+    await window.webContents.executeJavaScript(`(async () => {
       const input = document.querySelector('[aria-label="内置提示词内容"]');
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,input.value+'\\n只保留核心知识。（窗口同步验证）');
       input.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(resolve=>setTimeout(resolve,0));
@@ -222,8 +222,10 @@ async function runSmokeTest(window, app, storage) {
       [...document.querySelectorAll('button')].find(button=>button.textContent==='保存提示词').click();
     })()`);
     await delay(150);
-    const settingsScreenshot = path.join(app.getPath('userData'), 'settings-window-smoke.png');
-    await fs.writeFile(settingsScreenshot, (await settingsWindow.webContents.capturePage()).toPNG());
+    const settingsScreenshot = path.join(app.getPath('userData'), 'settings-panel-smoke.png');
+    await fs.writeFile(settingsScreenshot, (await window.webContents.capturePage()).toPNG());
+    await window.webContents.executeJavaScript("document.querySelector('[role=dialog][aria-label=\"设置\"] > div button[aria-label]').click()");
+    await waitFor(window, "!document.querySelector('[role=dialog][aria-label=\"设置\"]')");
     await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"新建对话\"]').click()");
     await waitFor(window, "document.querySelectorAll('.react-flow textarea').length===3");
     await window.webContents.executeJavaScript(`(async () => {
@@ -239,7 +241,6 @@ async function runSmokeTest(window, app, storage) {
     await delay(400); await window.webContents.executeJavaScript('window.caudalflowFlush()');
     assert(chatRequests.at(-1).messages[0].content.includes('设置窗口同步标记'));
     assert(summaryPrompts.at(-1).includes('窗口同步验证'));
-    settingsWindow.close();
     assert(!chatRequests.at(-1).messages.some((message) => message.content.includes('Branched from a conversation')));
     const referenceScreenshot = path.join(app.getPath('userData'), 'reference-smoke.png');
     await fs.writeFile(referenceScreenshot, (await window.webContents.capturePage()).toPNG());
@@ -565,7 +566,7 @@ async function runSmokeTest(window, app, storage) {
     assert(await window.webContents.executeJavaScript("!document.querySelector('details[data-token-usage], [data-token-usage] summary')"));
     const screenshot = path.join(app.getPath('userData'), 'storage-smoke.png');
     await fs.writeFile(screenshot, (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'independent settings window without workspace runtime', 'prompt edits synchronized to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'native canvas and message clicks close workspace menu', 'source navigation preserves current zoom', 'overlapping references list distinct questions', 'native hover previews only selected range', 'hover popup stays open across the gap and closes on leave', 'no permanent reference highlight', 'forward jump locates exact question without zoom'] }));
+    console.log(JSON.stringify({ desktopSmoke: 'passed', packaged: app.isPackaged, storage: app.getPath('userData'), screenshot, historyScreenshot, referenceScreenshot, settingsScreenshot, highlightScreenshots, checks: ['SQLite worker', 'native file format', 'streaming and reasoning', 'regeneration and immutable versions', 'version selection undo/redo without new API calls', 'undo/redo done state', 'reload durability', 'restart clears undo stack', 'no localStorage workspace writes', 'independent local history', 'one entry per operation', 'affected question/reply tree', 'raw Markdown URL diff', 'scoped history restore clears undo', 'immediate copy without model request', 'copy reference and paste attachment', 'visible reference/question/reply order', 'snapshot context in real API request', 'reference survives reload', 'in-app settings without a second native window', 'in-app prompt edits applied to next request', 'prompt changes invalidate summary cache', 'portable workspace excludes personal history', 'reference highlights readable in light and dark themes', 'single-character branch range', 'native wheel scrolls input without zoom', 'metadata rename without canvas blocking', 'dropdown rename exits editing and persists', 'native outside click saves rename despite canvas preventDefault', 'native canvas and message clicks close workspace menu', 'source navigation preserves current zoom', 'overlapping references list distinct questions', 'native hover previews only selected range', 'hover popup stays open across the gap and closes on leave', 'no permanent reference highlight', 'forward jump locates exact question without zoom'] }));
     await storage.close(); clearTimeout(timeout); server.close(); app.exit(0);
   } catch (error) {
     console.error(error); clearTimeout(timeout); server.close(); app.exit(1);

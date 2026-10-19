@@ -8,8 +8,6 @@ import { usePersistence } from './hooks/usePersistence';
 import { useSettingsStore } from './stores/settingsStore';
 import { PromptSettingsPanel } from './components/ui/PromptSettingsPanel';
 import { StorageGate } from './components/ui/StorageGate';
-import { SettingsWindow } from './components/ui/SettingsWindow';
-import { isSettingsWindow } from './services/settingsWindow';
 
 function ReferenceCopyNotice() {
   const [visible, setVisible] = useState(false);
@@ -76,7 +74,6 @@ function AppInner() {
 }
 
 export default function App() {
-  if (isSettingsWindow()) return <SettingsWindow />;
   return (
     <CopilotKitProviderShell>
       <ReactFlowProvider>

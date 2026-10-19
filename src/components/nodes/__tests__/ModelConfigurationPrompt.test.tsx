@@ -19,7 +19,8 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
-it('updates the model label immediately, keeps the draft and opens model management from the configuration prompt', async () => {
+it.each(['http:', 'app:'])('keeps the draft and opens in-app model management from the configuration prompt on %s', async (protocol) => {
+  vi.stubGlobal('location', { protocol });
   const send = vi.fn();
   await act(async () => root.render(<><ChatInput nodeId="a" onSend={send} onCancel={vi.fn()} /><SettingsPanel /></>));
   expect(document.querySelector('[aria-label="会话模型设置"]')?.textContent).toContain('DeepSeek Flash');

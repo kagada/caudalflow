@@ -27,19 +27,12 @@ async function proxyAPI(request, fetchRemote) {
 }
 
 // 使用固定来源提供界面与流式 API，既保留本地存储，也不占用任何 HTTP 端口。
-function createProtocolHandler(distDir, fetchRemote, storage, clipboard, windows) {
+function createProtocolHandler(distDir, fetchRemote, storage, clipboard) {
   return async (request) => {
     try {
       const url = new URL(request.url);
       if (url.host !== 'caudalflow') return new Response('Forbidden', { status: 403 });
       if (request.initiatorOrigin && request.initiatorOrigin !== APP_ORIGIN) return new Response('Forbidden', { status: 403 });
-      if (url.pathname === '/api/settings-window' && windows) {
-        if (request.method !== 'POST' || !request.headers.get('content-type')?.startsWith('application/json')) return new Response('Method not allowed', { status: 405 });
-        if (request.headers.get('origin') && request.headers.get('origin') !== APP_ORIGIN) return new Response('Forbidden', { status: 403 });
-        const { section } = await request.json();
-        await windows.openSettings(['general', 'prompts', 'presets', 'models'].includes(section) ? section : 'general');
-        return Response.json({ ok: true });
-      }
       if (url.pathname === '/api/clipboard' && clipboard) {
         if (request.method !== 'POST' || !request.headers.get('content-type')?.startsWith('application/json')) return new Response('Method not allowed', { status: 405 });
         const origin = request.headers.get('origin');

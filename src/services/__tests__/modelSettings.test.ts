@@ -2,10 +2,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { openModelSettings } from '../modelSettings';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { openSettingsWindow } from '../settingsWindow';
 
 vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
-vi.mock('../settingsWindow', () => ({ openSettingsWindow: vi.fn(), isSettingsWindow: () => false }));
 beforeEach(() => {
   vi.clearAllMocks();
   useSettingsStore.setState({ showSettings: false, settingsSection: 'general' });
@@ -13,15 +11,13 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it('opens the model section in the desktop settings window', async () => {
-  vi.mocked(openSettingsWindow).mockResolvedValue(undefined);
+it('opens model management inside the desktop app', async () => {
   await openModelSettings();
-  expect(openSettingsWindow).toHaveBeenCalledWith('models');
-  expect(useSettingsStore.getState().showSettings).toBe(false);
+  expect(useSettingsStore.getState()).toMatchObject({ showSettings: true, settingsSection: 'models' });
 });
 
-it('retains the model section when falling back to an in-page settings panel', async () => {
-  vi.mocked(openSettingsWindow).mockRejectedValue(new Error('window unavailable'));
+it('switches an already open settings panel to model management', async () => {
+  useSettingsStore.setState({ showSettings: true, settingsSection: 'prompts' });
   await openModelSettings();
   expect(useSettingsStore.getState()).toMatchObject({ showSettings: true, settingsSection: 'models' });
 });

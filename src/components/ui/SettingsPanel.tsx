@@ -1,7 +1,7 @@
 import { ModelManagement } from './ModelManagement';
 import { useTranslation } from 'react-i18next';
 import { X, Sun, Moon, Monitor, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { BuiltinPromptSettings } from './BuiltinPromptSettings';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -11,7 +11,7 @@ import type { LLMConfig } from '../../types/chat';
 import { isDeepSeekEndpoint } from '../../services/providers/thinking';
 import { isDesktopRuntime } from '../../services/providers/transport';
 
-export function SettingsPanel({ standalone = false }: { standalone?: boolean }) {
+export function SettingsPanel() {
   const { t } = useTranslation();
   const showSettings = useSettingsStore((s) => s.showSettings);
   const setShowSettings = useSettingsStore((s) => s.setShowSettings);
@@ -32,17 +32,10 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
   const [modelsError, setModelsError] = useState<string | null>(null);
   const requestVersion = useRef(0);
   const isOpenAICompatible = ['custom', 'openai', 'deepseek', 'bailian'].includes(config.providerId);
-  const [tab, setTab] = useState(['prompts', 'models'].includes(new URLSearchParams(location.search).get('section') ?? '') ? new URLSearchParams(location.search).get('section')! : useSettingsStore.getState().settingsSection);
-  const close = () => standalone ? window.close() : setShowSettings(false);
-  useEffect(() => {
-    const change = (event: Event) => {
-      const section = (event as CustomEvent<string>).detail;
-      if (section === 'presets') useSettingsStore.getState().setShowPromptSettings(true);
-      else setTab(['prompts', 'models'].includes(section) ? section : 'general');
-    };
-    window.addEventListener('caudalflow:settings-section', change);
-    return () => window.removeEventListener('caudalflow:settings-section', change);
-  }, []);
+  // 页签跟随共享状态，让模型配置入口可以切换已经打开的设置面板。
+  const tab = useSettingsStore((s) => s.settingsSection);
+  const setTab = (settingsSection: string) => useSettingsStore.setState({ settingsSection });
+  const close = () => setShowSettings(false);
 
   // 更改接口后旧请求的结果不能写回，避免显示其他服务商的模型或连接状态。
   const handleConfigChange = (changes: Partial<LLMConfig>) => {
@@ -87,7 +80,7 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
     }
   }, [config.endpoint, config.apiKey, config.model, config.thinkingMode]);
 
-  if (!standalone && !showSettings) return null;
+  if (!showSettings) return null;
 
   const labelClass = 'block text-xs font-medium mb-1';
   const inputClass =
@@ -100,11 +93,13 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
   ];
 
   const panel = (
-    <div role="dialog" aria-label="设置" className={`bg-surface-900 border border-border flex flex-col text-text-primary ${standalone ? 'h-screen w-full' : 'h-[85vh] w-full max-w-4xl overflow-hidden rounded-xl shadow-2xl'}`}>
+    <div role="dialog" aria-modal="true" aria-label="设置" className="bg-surface-900 border border-border flex flex-col text-text-primary h-[85vh] w-full max-w-4xl overflow-hidden rounded-xl shadow-2xl">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h2 className="text-sm font-semibold text-text-primary">{t('settings.title')}</h2>
         <button
           onClick={close}
+          autoFocus
+          aria-label={t('common.close')}
           className="text-text-secondary hover:text-text-primary transition-colors"
         >
           <X size={18} />
@@ -367,5 +362,9 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
 
     </div>
   );
-  return standalone ? panel : createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/45 p-6">{panel}</div>, document.body);
+  return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/45 p-6" onKeyDown={(event) => {
+    // 设置内的按键不传到画布；关闭设置不会触发卡片操作。
+    event.stopPropagation();
+    if (event.key === 'Escape') close();
+  }}>{panel}</div>, document.body);
 }

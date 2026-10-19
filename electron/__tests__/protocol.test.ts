@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const { createProtocolHandler } = require('../protocol.cjs') as {
-  createProtocolHandler: (directory: string, fetcher: typeof fetch, storage?: unknown, clipboard?: { write: (formats: { text: string; html: string }) => void | Promise<void>; readText?: () => string | Promise<string> }, windows?: { openSettings: (section: string) => Promise<void> }) => (request: Request) => Promise<Response>;
+  createProtocolHandler: (directory: string, fetcher: typeof fetch, storage?: unknown, clipboard?: { write: (formats: { text: string; html: string }) => void | Promise<void>; readText?: () => string | Promise<string> }) => (request: Request) => Promise<Response>;
 };
 
 describe('desktop protocol', () => {
@@ -18,12 +18,6 @@ describe('desktop protocol', () => {
     expect(response.status).toBe(502); expect((await response.json()).error.message).toContain('剪切板未写入');
   });
 
-  it('opens a dedicated settings window through an explicit same-origin action', async () => {
-    const windows = { openSettings: vi.fn().mockResolvedValue(undefined) };
-    const handler = createProtocolHandler('D:/app/dist', vi.fn(), undefined, undefined, windows);
-    const response = await handler(new Request('app://caudalflow/api/settings-window', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'prompts' }) }));
-    expect(response.status).toBe(200); expect(windows.openSettings).toHaveBeenCalledWith('prompts');
-  });
   it('writes readable text and reference metadata together without allowing clipboard reads', async () => {
     const clipboard = { write: vi.fn() };
     const handler = createProtocolHandler('D:/app/dist', vi.fn(), undefined, clipboard);

@@ -18,7 +18,7 @@ let root: Root;
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
-  useSettingsStore.setState({ showSettings: true, llmConfig: { providerId: 'mock', providerName: 'Mock', endpoint: '', apiKey: '', model: '', temperature: 0.7, maxTokens: 2048, mockDelay: 30 } });
+  useSettingsStore.setState({ showSettings: true, settingsSection: 'general', llmConfig: { providerId: 'mock', providerName: 'Mock', endpoint: '', apiKey: '', model: '', temperature: 0.7, maxTokens: 2048, mockDelay: 30 } });
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);

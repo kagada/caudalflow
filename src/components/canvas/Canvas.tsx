@@ -90,7 +90,15 @@ export function Canvas() {
 
   // Listen for space key to toggle pan mode
   useEffect(() => {
+    // 应用内设置优先处理关闭快捷键，避免误关背后的活动卡片。
+    const closeActiveCard = () => {
+      const settings = useSettingsStore.getState();
+      if (settings.showPromptSettings) settings.setShowPromptSettings(false);
+      else if (settings.showSettings) settings.setShowSettings(false);
+      else useFlowStore.getState().closeActiveCard();
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (useSettingsStore.getState().showSettings || useSettingsStore.getState().showPromptSettings) return;
       if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w') {
         e.preventDefault(); e.stopPropagation(); useFlowStore.getState().closeActiveCard(); return;
       }
@@ -109,7 +117,6 @@ export function Canvas() {
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    const closeActiveCard = () => useFlowStore.getState().closeActiveCard();
     window.addEventListener('caudalflow-close-active-card', closeActiveCard);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
