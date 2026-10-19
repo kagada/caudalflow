@@ -69,7 +69,6 @@
     "display": "Display",
     "showSystemPrompts": "Show system prompts",
     "showSystemPromptsDescription": "Show system prompt messages in conversations.",
-    "savedToLocalStorage": "Settings are saved to localStorage",
     "apiKeyConfigured": "API key is configured on the server (apps/agent/.env)."
   },
   "help": {

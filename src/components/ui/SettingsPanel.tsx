@@ -365,11 +365,6 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
         </div>
       </div>}</div>
 
-      <div className="px-4 py-3 border-t border-border">
-        <p className="text-[10px] text-text-muted text-center">
-          {t('settings.savedToLocalStorage')}
-        </p>
-      </div>
     </div>
   );
   return standalone ? panel : createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/45 p-6">{panel}</div>, document.body);

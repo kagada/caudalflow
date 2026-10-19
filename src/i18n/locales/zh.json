@@ -69,7 +69,6 @@
     "display": "显示",
     "showSystemPrompts": "显示系统提示",
     "showSystemPromptsDescription": "在对话中显示系统提示消息。",
-    "savedToLocalStorage": "设置已保存到本地存储",
     "apiKeyConfigured": "API 密钥已在服务器上配置 (apps/agent/.env)。"
   },
   "help": {
