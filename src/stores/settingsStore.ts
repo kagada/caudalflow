@@ -93,6 +93,7 @@ export const useSettingsStore = create<SettingsState>()(
             anthropic: { model: 'claude-sonnet-4-5-20250929', endpoint: 'https://api.anthropic.com/v1/messages' },
             custom: { model: '', endpoint: '' },
             deepseek: { model: 'deepseek-flash', endpoint: 'https://api.deepseek.com' },
+            bailian: { model: '', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
           };
           const d = defaults[config.providerId];
           if (d) {

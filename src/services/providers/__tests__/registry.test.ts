@@ -3,6 +3,9 @@ import { getProvider, listProviders } from '../registry';
 
 describe('provider registry', () => {
   describe('getProvider', () => {
+    it('registers Bailian as a separate provider', () => {
+      expect(getProvider('bailian')).toMatchObject({ id: 'bailian', name: '阿里云百炼' });
+    });
     it('returns the mock provider', () => {
       const provider = getProvider('mock');
       expect(provider).toBeDefined();

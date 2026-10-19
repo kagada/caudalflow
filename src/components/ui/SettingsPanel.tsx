@@ -31,7 +31,7 @@ export function SettingsPanel({ standalone = false }: { standalone?: boolean }) 
   const [models, setModels] = useState<{ id: string; name: string }[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const requestVersion = useRef(0);
-  const isOpenAICompatible = ['custom', 'openai', 'deepseek'].includes(config.providerId);
+  const isOpenAICompatible = ['custom', 'openai', 'deepseek', 'bailian'].includes(config.providerId);
   const [tab, setTab] = useState(['prompts', 'models'].includes(new URLSearchParams(location.search).get('section') ?? '') ? new URLSearchParams(location.search).get('section')! : useSettingsStore.getState().settingsSection);
   const close = () => standalone ? window.close() : setShowSettings(false);
   useEffect(() => {

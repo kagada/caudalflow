@@ -3,11 +3,34 @@ import { resolveOpenAIEndpoint } from '../endpoints';
 import { fetchModels, testConnection } from '../api';
 import { CustomProvider } from '../custom';
 import { OpenAIProvider } from '../openai';
+import { BailianProvider } from '../bailian';
 import type { LLMConfig } from '../../../types/chat';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('custom API configuration', () => {
+  it('uses Bailian’s thinking switch while passing through effort values without hardcoded levels', async () => {
+    const request = vi.fn().mockImplementation(() => Promise.resolve(new Response('data:{"choices":[{"delta":{"content":"百炼回答"}}]}\ndata:[DONE]\n')));
+    vi.stubGlobal('fetch', request);
+    const config = { providerId: 'bailian', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-test', apiKey: 'bailian-key', temperature: 0.7, maxTokens: 2048, thinkingMode: 'disabled' } as LLMConfig;
+    const callbacks = { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
+    await BailianProvider.streamChat([], config, callbacks, new AbortController().signal);
+    expect(request).toHaveBeenCalledWith('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer bailian-key' }) }));
+    const body = JSON.parse(request.mock.calls[0][1].body);
+    expect(body.model).toBe('qwen-test');
+    expect(body.enable_thinking).toBe(false);
+    expect(body.thinking).toBeUndefined();
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(callbacks.onToken).toHaveBeenCalledWith('百炼回答');
+    expect(callbacks.onError).not.toHaveBeenCalled();
+    request.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: 'OK' } }] }));
+    expect((await testConnection(config.endpoint, config.apiKey, config.model)).success).toBe(true);
+    expect(JSON.parse(request.mock.calls[1][1].body).enable_thinking).toBe(false);
+    await BailianProvider.streamChat([], { ...config, thinkingMode: 'enabled', thinkingEffort: 'vendor-effort' }, callbacks, new AbortController().signal);
+    const selectedBody = JSON.parse(request.mock.calls[2][1].body);
+    expect(selectedBody.reasoning_effort).toBe('vendor-effort');
+    expect(selectedBody.enable_thinking).toBe(true);
+  });
   it('reads effort capabilities from the actual model-list response without inventing missing levels', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [
       { id: 'deepseek-flash', name: 'DeepSeek Flash', effort: { supported_levels: ['low', 'high', 'max', 'high', null], default_level: 'high' } },

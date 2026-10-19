@@ -4,6 +4,7 @@ import { OpenAIProvider } from './openai';
 import { AnthropicProvider } from './anthropic';
 import { CustomProvider } from './custom';
 import { DeepSeekProvider } from './deepseek';
+import { BailianProvider } from './bailian';
 
 const providers = new Map<string, LLMProvider>();
 
@@ -16,6 +17,7 @@ register(OpenAIProvider);
 register(AnthropicProvider);
 register(CustomProvider);
 register(DeepSeekProvider);
+register(BailianProvider);
 
 export function getProvider(id: string): LLMProvider | undefined {
   return providers.get(id);
