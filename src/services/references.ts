@@ -113,7 +113,7 @@ export async function resolveReference(reference: ContentReference, target?: Usa
   if (!reference.summaryInput) return reference;
   const settings = useSettingsStore.getState();
   const sourceChars = reference.summaryInput.reduce((total, message) => total + message.content.length, 0);
-  // 500 字是生成目标，1000 字才触发压缩与拒绝，给模型正常的长度浮动空间。
+  // 摘要优先精简，硬上限只用于决定是否重试压缩。
   const maxChars = REFERENCE_SUMMARY_MAX_CHARS;
   const prompt = renderSummaryPrompt(settings.builtinPrompts?.referenceSummary ?? DEFAULT_BUILTIN_PROMPTS.referenceSummary, sourceChars, maxChars);
   const key = await referenceKey(JSON.stringify({ snapshot: reference.snapshotKey, prompt, maxChars, model: settings.llmConfig.model, provider: settings.llmConfig.providerId, endpoint: settings.llmConfig.endpoint }));

@@ -44,7 +44,7 @@ describe('independent reference snapshots', () => {
     const draft = await createReference('parent', undefined, { deferSummary: true });
     const first = await resolveReference(draft);
     provider.prompt = '请压缩为短摘要，最多 {{maxChars}} 字。';
-    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(4001)); callbacks.onDone(); });
     const second = await resolveReference(draft);
     expect(first.snapshotKey).not.toBe(second.snapshotKey);
     expect(provider.streamChat).toHaveBeenCalledTimes(3);
@@ -54,13 +54,13 @@ describe('independent reference snapshots', () => {
 
   it('rejects an uncompressed result after one retry and permits retrying the original snapshot', async () => {
     const draft = await createReference('parent', undefined, { deferSummary: true });
-    provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
-    await expect(resolveReference(draft)).rejects.toThrow('仍超过 1000 字');
+    provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(4001)); callbacks.onDone(); });
+    await expect(resolveReference(draft)).rejects.toThrow('仍超过 4000 字');
     expect(provider.streamChat).toHaveBeenCalledTimes(2);
     expect(draft.summaryInput).toBeDefined();
   });
 
-  it.each([500, 600, 1000])('accepts a %i-character summary with a 500-character target and 1000-character limit', async (length) => {
+  it.each([500, 1000, 1001, 4000])('accepts a %i-character summary with a 500-character target and 4000-character limit', async (length) => {
     provider.prompt = '只输出背景摘要。';
     const summary = '摘'.repeat(length);
     provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken(summary); callbacks.onDone(); });
@@ -69,29 +69,30 @@ describe('independent reference snapshots', () => {
     expect(provider.streamChat).toHaveBeenCalledTimes(1);
     const [messages, config] = provider.streamChat.mock.calls[0];
     expect(messages[0].content).toContain('目标约 500 字');
-    expect(messages[0].content).toContain('最多 1000 字');
-    expect(config.maxTokens).toBe(3000);
+    expect(messages[0].content).toContain('尽量精简');
+    expect(messages[0].content).toContain('最多 4000 字');
+    expect(config.maxTokens).toBe(4096);
   });
 
   it('accepts compression to a result above the target but within the hard limit', async () => {
-    const summary = '摘'.repeat(800);
-    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
+    const summary = '摘'.repeat(4000);
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken('长'.repeat(4001)); callbacks.onDone(); });
     provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onToken(summary); callbacks.onDone(); });
     expect((await createReference('parent')).summary).toBe(summary);
     expect(provider.streamChat).toHaveBeenCalledTimes(2);
-    expect(provider.streamChat.mock.calls[1][0][0].content).toContain('压缩至约 500 字，最多 1000 字');
+    expect(provider.streamChat.mock.calls[1][0][0].content).toContain('压缩至约 500 字，最多 4000 字');
   });
 
   it('records summary and compression requests in the target workspace and reuses cached summaries', async () => {
     const reference = await createReference('parent', undefined, { deferSummary: true });
     useWorkspaceStore.setState({ activeWorkspaceId: 'w2' }); useChatStore.getState().initConversation('target');
-    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onUsage({ inputTokens: 100, outputTokens: 1001, cachedInputTokens: 50 }); callbacks.onToken('长'.repeat(1001)); callbacks.onDone(); });
-    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onUsage({ inputTokens: 1001, outputTokens: 500 }); callbacks.onToken('摘'.repeat(500)); callbacks.onDone(); });
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onUsage({ inputTokens: 100, outputTokens: 4001, cachedInputTokens: 50 }); callbacks.onToken('长'.repeat(4001)); callbacks.onDone(); });
+    provider.streamChat.mockImplementationOnce((_messages, _config, callbacks) => { callbacks.onUsage({ inputTokens: 4001, outputTokens: 500 }); callbacks.onToken('摘'.repeat(500)); callbacks.onDone(); });
     await resolveReference(reference, { nodeId: 'target' });
     await resolveReference(reference, { nodeId: 'target' });
     const usage = useChatStore.getState().conversations.target.usage!;
     expect(usage.map((record) => record.purpose)).toEqual(['reference_summary', 'summary_compression']);
-    expect(usage.map((record) => record.inputTokens)).toEqual([100, 1001]);
+    expect(usage.map((record) => record.inputTokens)).toEqual([100, 4001]);
     expect(useChatStore.getState().conversations.parent.usage).toBeUndefined();
     expect(provider.streamChat).toHaveBeenCalledTimes(2);
   });
