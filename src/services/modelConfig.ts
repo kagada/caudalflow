@@ -2,6 +2,7 @@ import { useModelStore } from '../stores/modelStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useFlowStore } from '../stores/flowStore';
 import type { LLMConfig } from '../types/chat';
+import { resolveThinkingEffort } from './modelThinking';
 
 // 配置缺失单独标识，界面可引导配置，网络等其他错误仍保留原有提示。
 export class ModelConfigurationError extends Error {
@@ -24,5 +25,8 @@ export function resolveModelConfig(nodeId?: string): LLMConfig {
   if (!provider?.enabled || !provider.endpoint.trim() || !provider.apiKey.trim() || !model?.enabled) {
     throw new ModelConfigurationError();
   }
-  return { ...base, providerId: provider.id, providerName: provider.name, endpoint: provider.endpoint.trim(), apiKey: provider.apiKey.trim(), model: model.id };
+  const override = nodeId ? useFlowStore.getState().nodes.find((node) => node.id === nodeId)?.data.thinkingEffort : undefined;
+  const effort = resolveThinkingEffort(model, base, override);
+  return { ...base, providerId: provider.id, providerName: provider.name, endpoint: provider.endpoint.trim(), apiKey: provider.apiKey.trim(), model: model.id,
+    thinkingMode: effort === 'none' ? 'disabled' : effort === 'auto' ? 'auto' : 'enabled', thinkingEffort: ['none', 'auto'].includes(effort) ? undefined : effort };
 }

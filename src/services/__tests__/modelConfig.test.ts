@@ -26,6 +26,27 @@ it('routes answers and titles per conversation while unselected conversations fo
   expect(JSON.stringify(useFlowStore.getState().nodes)).not.toContain('local-secret');
 });
 
+it('inherits each model’s default, applies a portable conversation override and suppresses thinking for titles', () => {
+  useModelStore.getState().updateProvider('deepseek', { models: [
+    { id: 'one', name: 'One', enabled: true, effort: { supportedLevels: ['low', 'high', 'max'], defaultLevel: 'high' }, defaultThinkingEffort: 'low' },
+    { id: 'two', name: 'Two', enabled: true, effort: { supportedLevels: ['high', 'max'], defaultLevel: 'high' }, defaultThinkingEffort: 'max' },
+  ] });
+  expect(resolveModelConfig('a')).toMatchObject({ thinkingMode: 'enabled', thinkingEffort: 'max' });
+  expect(resolveModelConfig('b')).toMatchObject({ thinkingMode: 'enabled', thinkingEffort: 'low' });
+  useFlowStore.getState().updateNodeData('a', { thinkingEffort: 'high' });
+  expect(resolveModelConfig('a')).toMatchObject({ thinkingMode: 'enabled', thinkingEffort: 'high' });
+  generateTitle('question', '', vi.fn(), { nodeId: 'a' });
+  expect(provider.streamChat.mock.calls[0][1].thinkingMode).toBe('disabled');
+  useFlowStore.getState().updateNodeData('a', { thinkingEffort: 'none' });
+  expect(resolveModelConfig('a')).toMatchObject({ thinkingMode: 'disabled', thinkingEffort: undefined });
+  useFlowStore.getState().updateNodeData('a', { thinkingEffort: undefined });
+  expect(resolveModelConfig('a').thinkingEffort).toBe('max');
+  // 不支持的强度使用新模型的默认设置；原选择保留，以便切回原模型后恢复。
+  useFlowStore.getState().updateNodeData('a', { thinkingEffort: 'low' });
+  expect(resolveModelConfig('a').thinkingEffort).toBe('max');
+  expect(useFlowStore.getState().nodes[0].data.thinkingEffort).toBe('low');
+});
+
 it('restores a migrated selection by provider and model ID using this computer’s credentials', () => {
   useModelStore.getState().updateProvider('deepseek', { apiKey: '' });
   expect(() => resolveModelConfig('a')).toThrow('未设置模型');

@@ -62,7 +62,7 @@ it('offers manual entry when synchronization fails, tests the chosen ID, and sel
   await click('会话模型设置'); await click('Manual Model');
   expect(useFlowStore.getState().nodes[0].data.modelSelection).toEqual({ providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'manual-id' });
   expect(JSON.stringify(useFlowStore.getState().nodes)).not.toContain('secret');
-  await click('会话模型设置'); await click('跟随默认模型');
+  await click('会话模型设置'); await click('默认');
   expect(useFlowStore.getState().nodes[0].data.modelSelection).toBeUndefined();
 });
 
@@ -74,4 +74,33 @@ it('ignores a synchronization result after credentials are edited', async () => 
   await act(async () => finish([{ id: 'old', name: 'Old' }]));
   expect(document.querySelector('[role="dialog"][aria-label="模型列表"]')).toBeNull();
   expect(useModelStore.getState().providers[0].models).toEqual([]);
+});
+
+it('refreshes existing model capabilities while retaining defaults and allows a conversation to override them', async () => {
+  useModelStore.getState().updateProvider('deepseek', { models: [{ id: 'one', name: 'My model', enabled: true, defaultThinkingEffort: 'low' }] });
+  useModelStore.getState().setDefaultModel({ providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'one' });
+  vi.mocked(fetchModels).mockResolvedValue([{ id: 'one', name: 'API name', effort: { supportedLevels: ['low', 'high', 'max'], defaultLevel: 'high' } }]);
+  await act(async () => root.render(<ModelManagement />));
+  await click('模型列表'); await click('保存选择');
+  const model = useModelStore.getState().providers[0].models[0];
+  expect(model).toMatchObject({ name: 'My model', enabled: true, defaultThinkingEffort: 'low', effort: { supportedLevels: ['low', 'high', 'max'] } });
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[aria-label="one 默认思考强度"] button')].find((button) => button.textContent === '最高')!.click());
+  expect(useModelStore.getState().providers[0].models[0].defaultThinkingEffort).toBe('max');
+  expect(JSON.parse(localStorage.getItem('caudalflow-local-models')!).state.providers[0].models[0].defaultThinkingEffort).toBe('max');
+  useFlowStore.setState({ nodes: [{ id: 'a', type: 'chat', position: { x: 0, y: 0 }, data: { topic: 'A' } }] });
+  await act(async () => root.render(<ConversationModelPicker nodeId="a" disabled={false} />));
+  expect(document.querySelector('[aria-label="当前思考强度"]')?.textContent).toBe('最高');
+  const inheritedLabel = document.querySelector('[aria-label="会话模型设置"]')!.textContent;
+  expect(inheritedLabel).not.toContain('默认');
+  await click('会话模型设置');
+  await click('My model');
+  expect(document.querySelector('[aria-label="会话模型设置"]')?.textContent).toBe(inheritedLabel);
+  await click('会话模型设置');
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[aria-label="会话思考强度"] button')].find((button) => button.textContent === '低')!.click());
+  expect(useFlowStore.getState().nodes[0].data.thinkingEffort).toBe('low');
+  expect(document.querySelector('[aria-label="当前思考强度"]')?.textContent).toBe('低');
+  expect(useModelStore.getState().providers[0].models[0].defaultThinkingEffort).toBe('max');
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[aria-label="会话思考强度"] button')].find((button) => button.textContent === '默认')!.click());
+  expect(useFlowStore.getState().nodes[0].data.thinkingEffort).toBeUndefined();
+  expect(document.querySelector('[aria-label="当前思考强度"]')?.textContent).toBe('最高');
 });

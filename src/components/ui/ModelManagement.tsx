@@ -3,6 +3,9 @@ import { Eye, EyeOff, Plus, RefreshCw, X } from 'lucide-react';
 import { useModelStore } from '../../stores/modelStore';
 import { fetchModels, testConnection } from '../../services/providers/api';
 import type { ManagedModel } from '../../types/chat';
+import { ThinkingEffortControl } from './ThinkingEffortControl';
+import { defaultThinkingEffort, thinkingEffortOptions } from '../../services/modelThinking';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 const field = 'w-full rounded-xl border border-border bg-surface-800 px-3 py-2 text-sm focus:outline-none focus:border-accent-500';
 const button = 'rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-700 disabled:opacity-40';
@@ -21,6 +24,7 @@ function ModelDialog({ title, label, onClose, children }: { title: string; label
 export function ModelManagement() {
   const { providers, updateProvider, defaultModel, setDefaultModel } = useModelStore();
   const provider = providers[0];
+  const legacy = useSettingsStore((state) => state.llmConfig);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
@@ -44,7 +48,11 @@ export function ModelManagement() {
         const fetched = await fetchModels(provider.endpoint, provider.apiKey);
         if (current !== version.current) return;
         const entries = new Map(provider.models.map((model) => [model.id, model]));
-        for (const model of fetched) if (!entries.has(model.id)) entries.set(model.id, { ...model, enabled: false });
+        // 已添加的模型也更新能力信息，同时保留用户名称、默认强度及启用状态。
+        for (const model of fetched) {
+          const existing = entries.get(model.id);
+          entries.set(model.id, { ...existing, ...model, effort: model.effort, name: existing?.name ?? model.name, enabled: existing?.enabled ?? false });
+        }
         setCandidates([...entries.values()]); setSearch(''); setDialog(true);
         if (!fetched.length) setResult('端点未返回模型，可使用“自定模型”添加。');
       } else {
@@ -82,8 +90,8 @@ export function ModelManagement() {
           <footer className="flex justify-end gap-2"><button type="button" className={button} onClick={() => setManual(false)}>取消</button><button type="submit" className={button} disabled={!modelId.trim()}>添加并启用</button></footer>
         </form>
       </ModelDialog>}
-      <div className="rounded-xl border border-border divide-y divide-border">{!provider.models.length && <p className="p-5 text-sm text-text-muted">暂无模型。打开“模型列表”选择启用，或通过“自定模型”添加。</p>}{provider.models.map((model) => <div key={model.id} className="flex items-center gap-3 p-3"><label className="flex min-w-0 flex-1 items-center gap-3"><input aria-label={`启用 ${model.id}`} type="checkbox" checked={model.enabled} onChange={(e) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item) })} /><span className="min-w-0"><span className="block truncate text-sm">{model.name}</span><span className="block truncate text-xs text-text-muted">{model.id}</span></span></label><button className={button} disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button></div>)}</div>
-      <p className="text-xs text-text-muted">未指定模型的会话使用默认模型。关闭已选模型后，会话保留选择并提示重新启用。</p>
+      <div className="rounded-xl border border-border divide-y divide-border">{!provider.models.length && <p className="p-5 text-sm text-text-muted">暂无模型。打开“模型列表”选择启用，或通过“自定模型”添加。</p>}{provider.models.map((model) => <div key={model.id} className="flex flex-wrap items-center gap-3 p-3"><label className="flex min-w-0 flex-1 items-center gap-3"><input aria-label={`启用 ${model.id}`} type="checkbox" checked={model.enabled} onChange={(e) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item) })} /><span className="min-w-0"><span className="block truncate text-sm">{model.name}</span><span className="block truncate text-xs text-text-muted">{model.id}</span></span></label><div className="shrink-0 space-y-1"><span className="block text-[10px] text-text-muted">默认思考强度</span><ThinkingEffortControl label={`${model.id} 默认思考强度`} options={thinkingEffortOptions(model)} value={defaultThinkingEffort(model, legacy)} onChange={(effort) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultThinkingEffort: effort } : item) })} /></div><button className={button} disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button></div>)}</div>
+      <p className="text-xs text-text-muted">未指定模型的会话使用默认模型，未单独设置强度时使用该模型的默认思考强度。重新获取模型列表可更新可选强度。关闭已选模型后，会话保留选择并提示重新启用。</p>
       {dialog && <ModelDialog title={`DeepSeek 模型 · ${candidates.length}`} label="模型列表" onClose={() => setDialog(false)}>
         <input autoFocus aria-label="搜索模型" className={field} placeholder="搜索模型…" value={search} onChange={(event) => setSearch(event.target.value)} />
         <div className="max-h-72 overflow-y-auto space-y-2">{candidates.filter((model) => `${model.id} ${model.name}`.toLowerCase().includes(search.toLowerCase())).map((model) => <label key={model.id} className={`flex gap-3 rounded-xl p-3 ${model.enabled ? 'bg-accent-500/10' : 'bg-surface-800'}`}><input type="checkbox" checked={model.enabled} onChange={(event) => setCandidates((items) => items.map((item) => item.id === model.id ? { ...item, enabled: event.target.checked } : item))} /><span className="min-w-0 text-sm break-all">{model.name}<small className="block text-text-muted">{model.id}</small></span></label>)}</div>

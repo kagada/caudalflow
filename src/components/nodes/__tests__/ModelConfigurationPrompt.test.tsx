@@ -51,6 +51,6 @@ it.each(['key', 'model', 'provider'] as const)('shows an unconfigured explicit s
   await act(async () => useModelStore.getState().updateProvider('deepseek', missing === 'key' ? { apiKey: '' } : missing === 'model' ? { models: [] } : { enabled: false }));
   expect(document.querySelector('[aria-label="会话模型设置"]')?.textContent).toBe('未设置模型');
   await act(async () => useModelStore.getState().updateProvider('deepseek', original));
-  expect(document.querySelector('[aria-label="会话模型设置"]')?.textContent).toBe('DeepSeek Flash');
+  expect(document.querySelector('[aria-label="会话模型设置"]')?.textContent).toContain('DeepSeek Flash');
   expect(useFlowStore.getState().nodes[0].data.modelSelection?.modelId).toBe('deepseek-flash');
 });

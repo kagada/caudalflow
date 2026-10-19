@@ -1,11 +1,12 @@
 import { resolveOpenAIEndpoint } from './endpoints';
 import { thinkingParameters } from './thinking';
-import type { LLMConfig } from '../../types/chat';
+import type { LLMConfig, ModelEffort } from '../../types/chat';
 import { apiFetch } from './transport';
 
 export interface ModelInfo {
   id: string;
   name: string;
+  effort?: ModelEffort;
 }
 
 function authHeaders(apiKey: string): Record<string, string> {
@@ -30,9 +31,12 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<Mod
   if (!Array.isArray(entries)) throw new Error('The API did not return a model list.');
   return entries.flatMap((entry: unknown) => {
     if (!entry || typeof entry !== 'object') return [];
-    const model = entry as { id?: unknown; name?: unknown };
+    const model = entry as { id?: unknown; name?: unknown; effort?: { supported_levels?: unknown; default_level?: unknown } };
     const id = typeof model.id === 'string' ? model.id : typeof model.name === 'string' ? model.name : '';
-    return id ? [{ id, name: typeof model.name === 'string' ? model.name : id }] : [];
+    // 能力只取服务端明确报告的档位，兼容缺少元信息的模型列表。
+    const levels = Array.isArray(model.effort?.supported_levels) ? [...new Set(model.effort.supported_levels.filter((level): level is string => typeof level === 'string' && !!level.trim() && !['none', 'auto'].includes(level)))] : [];
+    const defaultLevel = typeof model.effort?.default_level === 'string' && levels.includes(model.effort.default_level) ? model.effort.default_level : undefined;
+    return id ? [{ id, name: typeof model.name === 'string' ? model.name : id, ...(levels.length ? { effort: { supportedLevels: levels, ...(defaultLevel ? { defaultLevel } : {}) } } : {}) }] : [];
   });
 }
 

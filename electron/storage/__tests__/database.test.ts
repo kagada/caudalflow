@@ -27,15 +27,19 @@ describe('SQLite workspace and independent local history', () => {
   it('preserves portable model identifiers across workspace reload and undo', () => {
     const data = example(); workspace.save(data);
     data.nodes[0].data.modelSelection = { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'my-model' };
+    data.nodes[0].data.thinkingEffort = 'max';
     workspace.save(data);
     expect(workspace.load().data.nodes[0].data.modelSelection).toEqual(data.nodes[0].data.modelSelection);
+    expect(workspace.load().data.nodes[0].data.thinkingEffort).toBe('max');
     const event = workspace.listHistory()[0];
     const history = workspace.readHistory(event.id);
     expect(history.after.nodes[0].data.modelSelection).toEqual(data.nodes[0].data.modelSelection);
     workspace.restoreHistory(event.id, 'before');
     expect(workspace.load().data.nodes[0].data.modelSelection).toBeUndefined();
+    expect(workspace.load().data.nodes[0].data.thinkingEffort).toBeUndefined();
     workspace.restoreHistory(event.id, 'after');
     expect(workspace.load().data.nodes[0].data.modelSelection).toEqual(data.nodes[0].data.modelSelection);
+    expect(workspace.load().data.nodes[0].data.thinkingEffort).toBe('max');
     expect(JSON.stringify(workspace.load().data)).not.toMatch(/apiKey|endpoint/);
   });
 

@@ -43,7 +43,7 @@ export const CustomProvider: LLMProvider = {
       max_tokens: config.maxTokens,
       stream: true,
       stream_options: { include_usage: true },
-      ...thinkingParameters(config.endpoint, config.thinkingMode),
+      ...thinkingParameters(config.endpoint, config.thinkingMode, config.thinkingEffort, config.providerId),
     };
 
     try {

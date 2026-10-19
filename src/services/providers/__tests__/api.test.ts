@@ -8,6 +8,32 @@ import type { LLMConfig } from '../../../types/chat';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('custom API configuration', () => {
+  it('reads effort capabilities from the actual model-list response without inventing missing levels', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [
+      { id: 'deepseek-flash', name: 'DeepSeek Flash', effort: { supported_levels: ['low', 'high', 'max', 'high', null], default_level: 'high' } },
+      { id: 'manual' },
+      { id: 'limited', effort: { supported_levels: ['low'], default_level: 'max' } },
+    ] })));
+    expect(await fetchModels('https://api.deepseek.com', 'test-key')).toEqual([
+      { id: 'deepseek-flash', name: 'DeepSeek Flash', effort: { supportedLevels: ['low', 'high', 'max'], defaultLevel: 'high' } },
+      { id: 'manual', name: 'manual' },
+      { id: 'limited', name: 'limited', effort: { supportedLevels: ['low'] } },
+    ]);
+  });
+
+  it.each(['low', 'high', 'max'])('sends the selected %s effort with thinking enabled and omits it when disabled', async (effort) => {
+    const request = vi.fn().mockImplementation(() => Promise.resolve(new Response('data:{"choices":[{"delta":{"content":"答案"}}]}\ndata:[DONE]\n')));
+    vi.stubGlobal('fetch', request);
+    const config = { providerId: 'deepseek', endpoint: 'https://example.com/v1', model: 'deepseek-flash', apiKey: 'test-key', temperature: 0.7, maxTokens: 2048, thinkingMode: 'enabled', thinkingEffort: effort } as LLMConfig;
+    const callbacks = { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
+    await CustomProvider.streamChat([], config, callbacks, new AbortController().signal);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: effort });
+    await CustomProvider.streamChat([], { ...config, thinkingMode: 'disabled' }, callbacks, new AbortController().signal);
+    const body = JSON.parse(request.mock.calls[1][1].body);
+    expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
   it.each([
     [' https://example.com/ ', 'https://example.com/v1'],
     ['https://example.com/v1/', 'https://example.com/v1'],
