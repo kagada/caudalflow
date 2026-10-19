@@ -1,10 +1,13 @@
 import { ConversationModelPicker } from './ConversationModelPicker';
 import { useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowUp, Square, Plus, X } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import type { ContentReference } from '../../types/chat';
 import { readReferenceClipboard } from '../../services/referenceClipboard';
+import { ModelConfigurationError, resolveModelConfig } from '../../services/modelConfig';
+import { openModelSettings } from '../../services/modelSettings';
 
 interface ChatInputProps {
   nodeId: string;
@@ -26,6 +29,7 @@ export function ChatInput({
   const [references, setReferences] = useState<ContentReference[]>([]);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
+  const [showModelDialog, setShowModelDialog] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -38,10 +42,14 @@ export function ChatInput({
     if ((!trimmed && images.length === 0 && references.length === 0) || isStreaming || sending) return;
 
     setSending(true); setError('');
-    try { await onSend(trimmed, images, references); setInput(''); setImages([]); setReferences([]); }
-    catch (failure) { setError(String(failure)); }
+    // 发送前检查配置，未设置模型时保留草稿并提供配置入口，不把配置错误塞进编辑框。
+    try { resolveModelConfig(nodeId); await onSend(trimmed, images, references); setInput(''); setImages([]); setReferences([]); }
+    catch (failure) {
+      if (failure instanceof ModelConfigurationError) setShowModelDialog(true);
+      else setError(String(failure));
+    }
     finally { setSending(false); }
-  }, [input, images, references, isStreaming, sending, onSend]);
+  }, [input, images, references, isStreaming, sending, onSend, nodeId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -106,6 +114,16 @@ export function ChatInput({
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
+      {showModelDialog && createPortal(<div className="nowheel nodrag nopan fixed inset-0 z-[13000] flex items-center justify-center bg-black/45 p-5" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setShowModelDialog(false); } }}>
+        <div role="alertdialog" aria-modal="true" aria-labelledby={`model-required-${nodeId}`} className="w-full max-w-sm rounded-2xl border border-border bg-surface-900 p-5 text-text-primary shadow-2xl">
+          <h2 id={`model-required-${nodeId}`} className="font-semibold">未设置模型</h2>
+          <p className="mt-3 text-sm text-text-secondary">请先在模型管理中配置并启用模型。</p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface-800" onClick={() => setShowModelDialog(false)}>取消</button>
+            <button autoFocus className="rounded-lg bg-accent-500 px-4 py-2 text-sm text-white hover:bg-accent-600" onClick={() => { setShowModelDialog(false); void openModelSettings(); }}>去配置</button>
+          </div>
+        </div>
+      </div>, document.body)}
       {references.length > 0 && <div aria-label="待发送引用" className="mb-2 space-y-2">{references.map((reference, index) => <div key={`${reference.id}-${index}`} className="flex items-start gap-2 rounded-lg border border-border bg-surface-800 p-2 text-xs text-text-secondary">
         <details className="min-w-0 flex-1"><summary className="cursor-pointer truncate">引用 · {reference.sources.map((source) => source.title).join('、')}</summary><p className="mt-2 whitespace-pre-wrap break-words">{reference.summaryInput ? '已保存原文和背景快照，发送时生成摘要。' : reference.summary}</p><blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-border pl-2">{reference.quote}</blockquote></details>
         <button disabled={sending} aria-label={`移除引用 ${index + 1}`} onClick={() => setReferences((old) => old.filter((_, item) => item !== index))}><X size={14} /></button>

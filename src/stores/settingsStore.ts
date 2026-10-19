@@ -9,6 +9,7 @@ type Theme = 'light' | 'dark' | 'system';
 export interface PromptPreset { id: string; name: string; content: string }
 
 interface SettingsState {
+  settingsSection: string;
   builtinPrompts: Record<BuiltinPromptKey, string>;
   setBuiltinPrompt: (key: BuiltinPromptKey, content: string) => void;
   promptPresets: PromptPreset[];
@@ -51,6 +52,7 @@ function applyTheme(theme: Theme) {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      settingsSection: 'general',
       builtinPrompts: { ...DEFAULT_BUILTIN_PROMPTS },
       setBuiltinPrompt: (key, content) => set({ builtinPrompts: { ...get().builtinPrompts, [key]: content.trim() || DEFAULT_BUILTIN_PROMPTS[key] } }),
       promptPresets: [],

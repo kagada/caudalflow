@@ -28,18 +28,32 @@ it('routes answers and titles per conversation while unselected conversations fo
 
 it('restores a migrated selection by provider and model ID using this computer’s credentials', () => {
   useModelStore.getState().updateProvider('deepseek', { apiKey: '' });
-  expect(() => resolveModelConfig('a')).toThrow('two');
+  expect(() => resolveModelConfig('a')).toThrow('未设置模型');
   const error = vi.fn();
   streamChat([], { onToken: vi.fn(), onDone: vi.fn(), onError: error }, new AbortController().signal, { nodeId: 'a' });
   expect(error).toHaveBeenCalled(); expect(provider.streamChat).not.toHaveBeenCalled();
   useModelStore.getState().updateProvider('deepseek', { apiKey: 'new-machine-key' });
   expect(resolveModelConfig('a')).toMatchObject({ model: 'two', apiKey: 'new-machine-key' });
   useModelStore.getState().updateProvider('deepseek', { models: [{ id: 'two', name: 'Two', enabled: false }] });
-  expect(() => resolveModelConfig('a')).toThrow('two');
+  expect(() => resolveModelConfig('a')).toThrow('未设置模型');
 });
 
 it('keeps the legacy default available until a managed default is selected', () => {
   useModelStore.getState().setDefaultModel(null);
   expect(resolveModelConfig('b')).toEqual(useSettingsStore.getState().llmConfig);
   expect(resolveModelConfig('a').model).toBe('two');
+});
+
+it('honors disabled providers for both the managed default and the legacy default', () => {
+  useModelStore.getState().updateProvider('deepseek', { enabled: false });
+  expect(() => resolveModelConfig('a')).toThrow('未设置模型');
+  expect(() => resolveModelConfig('b')).toThrow('未设置模型');
+  const original = useSettingsStore.getState().llmConfig;
+  try {
+    useSettingsStore.setState({ llmConfig: { ...original, providerId: 'deepseek', model: 'one' } });
+    useModelStore.getState().setDefaultModel(null);
+    expect(() => resolveModelConfig('b')).toThrow('未设置模型');
+    useModelStore.getState().updateProvider('deepseek', { enabled: true });
+    expect(resolveModelConfig('b').model).toBe('one');
+  } finally { useSettingsStore.setState({ llmConfig: original }); }
 });
