@@ -20,6 +20,7 @@ import { ChatInput } from './ChatInput';
 import { ChatNodeDeleteConfirmation } from './ChatNodeDeleteConfirmation';
 import { FloatingNodePanel, type PanelPoint } from '../ui/FloatingNodePanel';
 import { deferConversationCommand } from '../../services/storage/runtime';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 const PALETTE_COLORS = [
   '#22c55e',
@@ -103,20 +104,12 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       }
     }
 
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsPaletteOpen(false);
-      }
-    };
-
     if (isPaletteOpen) {
       document.addEventListener("mousedown", handleClickOutside);
-      window.addEventListener("keydown", handleKey);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
-      window.removeEventListener("keydown", handleKey);
     };
   }, [isPaletteOpen, id]);
 
@@ -180,12 +173,8 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
     useFlowStore.getState().updateNodeData(id, { maximized: !maximized });
   }, [id, maximized]);
 
-  useEffect(() => {
-    if (!maximized) return;
-    const exit = (event: KeyboardEvent) => { if (event.key === 'Escape') useFlowStore.getState().updateNodeData(id, { maximized: false }); };
-    window.addEventListener('keydown', exit);
-    return () => window.removeEventListener('keydown', exit);
-  }, [id, maximized]);
+  useCancelLayer(Boolean(maximized), () => useFlowStore.getState().updateNodeData(id, { maximized: false }), 1000);
+  // 调色板由 FloatingNodePanel 注册在最大化视图之上。
 
   const handleDelete = useCallback((point?: PanelPoint) => {
     setPanelPoint(point);

@@ -10,6 +10,7 @@ import { isSqliteStorage } from '../../services/storage/client';
 import { createDesktopWorkspace, deleteDesktopWorkspace, openDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace } from '../../services/storage/runtime';
 import { isAndroid } from '../../services/platform';
 import { StorageControls } from './StorageControls';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 export function WorkspaceSelector() {
   const { t } = useTranslation();
@@ -28,6 +29,8 @@ export function WorkspaceSelector() {
   const editingSession = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  useCancelLayer(dropdownOpen, () => setDropdownOpen(false), 50);
+  useCancelLayer(editing, () => { editingSession.current = null; setEditing(false); }, 51);
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId);
 
@@ -94,10 +97,6 @@ export function WorkspaceSelector() {
         if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         e.preventDefault();
         commitRename();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        editingSession.current = null;
-        setEditing(false);
       }
     },
     [commitRename]

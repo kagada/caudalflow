@@ -14,6 +14,7 @@ import { cancelAllGenerations } from '../streamLifecycle';
 import { hasPersistedFlowChanges } from '../../utils/flowPersistence';
 import { mergeUsage } from '../../utils/tokenUsage';
 import { isAndroid } from '../platform';
+import { handleBackButton } from '../uiCancel';
 
 interface StorageStatus {
   ready: boolean;
@@ -216,8 +217,10 @@ async function installAndroidLifecycle() {
       if (!isActive) void flushDesktopStorage().catch(report);
     });
     await App.addListener('backButton', () => {
-      // 避免系统返回直接销毁尚未保存的页面；返回桌面前排空保存队列。
-      void finishGenerations().then(() => App.minimizeApp()).catch(report);
+      void handleBackButton(async () => {
+        await finishGenerations();
+        await App.minimizeApp();
+      }).catch(report);
     });
   } catch (error) { androidLifecycleInstalled = false; report(error); }
 }

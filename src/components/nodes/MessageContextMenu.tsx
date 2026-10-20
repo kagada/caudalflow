@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ChatMessage, ReferenceSelection } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[] } & ({ kind: 'selection'; text: string } | { kind: 'message'; message: ChatMessage });
 
@@ -27,14 +28,13 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
   const [copyingReference, setCopyingReference] = useState(false);
   const presets = useSettingsStore((state) => state.promptPresets);
   const ref = useRef<HTMLDivElement>(null);
+  useCancelLayer(true, close, 10000);
   useEffect(() => {
     const outside = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) close(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
     document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
     // 打开时聚焦菜单容器，首项不再看起来被选中；方向键再进入菜单项。
     ref.current?.focus({ preventScroll: true });
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+    return () => { document.removeEventListener('pointerdown', outside); };
   }, [close]);
   const perform = (action: () => void) => { action(); close(); };
   const copy = async () => {

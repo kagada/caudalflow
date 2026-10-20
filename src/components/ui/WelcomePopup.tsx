@@ -1,4 +1,5 @@
-import { useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 import { useTranslation, Trans } from 'react-i18next';
 import { Settings, Sparkles } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -21,14 +22,7 @@ export function WelcomePopup() {
     setShowSettings(true);
   }, [dismissWelcome, setShowSettings]);
 
-  useEffect(() => {
-    if (!visible) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleDismiss();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [visible, handleDismiss]);
+  useCancelLayer(visible, handleDismiss, 50);
 
   if (!visible) return null;
 

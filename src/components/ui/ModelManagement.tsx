@@ -6,13 +6,15 @@ import type { ManagedModel } from '../../types/chat';
 import { defaultThinkingEffort, thinkingEffortLabel, thinkingEffortOptions } from '../../services/modelThinking';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { supportsWebSearch } from '../../services/providers/webSearch';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 const field = 'w-full rounded-xl border border-border bg-surface-800 px-3 py-2 text-sm focus:outline-none focus:border-accent-500';
 const button = 'rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-700 disabled:opacity-40';
 
 // 模型列表和自定模型共用独立弹窗，保持关闭方式、间距和操作位置一致。
 function ModelDialog({ title, label, onClose, children }: { title: string; label: string; onClose: () => void; children: ReactNode }) {
-  return <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/50 p-5" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
+  useCancelLayer(true, onClose, 12000);
+  return <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/50 p-5">
     <div role="dialog" aria-modal="true" aria-label={label} className="w-full max-w-xl max-h-[calc(100vh-2.5rem)] overflow-y-auto rounded-2xl border border-border bg-surface-900 p-5 shadow-2xl space-y-4">
       <header className="flex items-center justify-between font-semibold">{title}<button aria-label={`关闭${label}`} onClick={onClose}><X size={18} /></button></header>
       {children}

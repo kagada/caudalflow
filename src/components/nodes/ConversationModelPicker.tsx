@@ -10,6 +10,7 @@ import { thinkingEffortLabel, thinkingEffortOptions } from '../../services/model
 import { ThinkingEffortControl } from '../ui/ThinkingEffortControl';
 import { supportsWebSearch } from '../../services/providers/webSearch';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 // 会话选项只写入可迁移的公开标识，弹层放到画布外避免被卡片裁切。
 export function ConversationModelPicker({ nodeId, disabled }: { nodeId: string; disabled: boolean }) {
@@ -39,10 +40,10 @@ export function ConversationModelPicker({ nodeId, disabled }: { nodeId: string; 
   useEffect(() => {
     if (!position) return;
     const close = (event: MouseEvent) => { if (!panel.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) setPosition(null); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setPosition(null); trigger.current?.focus(); } };
-    document.addEventListener('mousedown', close); document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', escape); };
+    document.addEventListener('mousedown', close);
+    return () => { document.removeEventListener('mousedown', close); };
   }, [position]);
+  useCancelLayer(Boolean(position), () => { setPosition(null); trigger.current?.focus(); }, 12000);
   return <>
     <button ref={trigger} disabled={disabled} aria-label="会话模型设置" aria-expanded={!!position} onClick={() => {
       const rect = trigger.current!.getBoundingClientRect();

@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore, type PromptPreset } from '../../stores/settingsStore';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 // 同一编辑面板可从设置和菜单打开，预设保存后立即供选区追问使用。
 export function PromptSettingsPanel() {
   const { t } = useTranslation();
   const presets = useSettingsStore((state) => state.promptPresets);
   const close = useSettingsStore((state) => state.setShowPromptSettings);
+  useCancelLayer(true, () => close(false), 11000);
   const [draft, setDraft] = useState({ id: '', name: '', content: '' });
   const [saved, setSaved] = useState(false);
   const edit = (preset: PromptPreset) => { setDraft(preset); setSaved(false); };
@@ -16,7 +18,7 @@ export function PromptSettingsPanel() {
     const preset = { id: draft.id || crypto.randomUUID(), name: draft.name.trim(), content: draft.content.trim() };
     useSettingsStore.getState().savePromptPreset(preset); setDraft(preset); setSaved(true);
   };
-  return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/40 p-6" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); close(false); } }}>
+  return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/40 p-6">
     <div role="dialog" aria-modal="true" aria-label={t('menu.managePrompts')} className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-surface-900 text-text-primary shadow-2xl">
       <div className="flex items-center justify-between border-b border-border p-5"><h2 className="text-xl font-semibold">{t('menu.managePrompts')}</h2><button onClick={() => close(false)} className="rounded-lg px-3 py-2 hover:bg-surface-700">{t('common.close')}</button></div>
       <div className="grid min-h-0 grid-cols-[200px_1fr] overflow-y-auto">

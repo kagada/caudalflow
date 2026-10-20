@@ -14,6 +14,7 @@ import { messageBacklinks, type ReferenceBacklink } from '../../utils/referenceB
 import { ReferenceBacklinks } from './ReferenceBacklinks';
 import { UsageStatistics } from './UsageStatistics';
 import { answerUsage } from '../../utils/tokenUsage';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 const NO_BACKLINKS: ReferenceBacklink[] = [];
 
@@ -60,14 +61,7 @@ export const ChatMessage = memo(function ChatMessage({
     };
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setLightbox(null);
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
+  useCancelLayer(Boolean(lightbox), () => setLightbox(null), 1050);
 
   const links = useMemo(() => messageBacklinks(message, backlinks), [message, backlinks]);
   const [ranges, setPreviewRanges] = useState<HighlightRange[]>([]);

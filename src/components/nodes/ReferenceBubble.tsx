@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 import { createPortal } from 'react-dom';
 import type { ChatMessage, ReferenceSource } from '../../types/chat';
 import { useChatStore } from '../../stores/chatStore';
@@ -13,12 +14,7 @@ import { UsageStatistics } from './UsageStatistics';
 // 来源失效时打开独立原文快照，不切换当前文档版本，也不影响已有问答。
 export function ReferenceBubble({ message }: { message: ChatMessage }) {
   const [snapshot, setSnapshot] = useState<ReferenceSource | null>(null);
-  useEffect(() => {
-    if (!snapshot) return;
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setSnapshot(null); } };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [snapshot]);
+  useCancelLayer(Boolean(snapshot), () => setSnapshot(null), 3000);
   const reference = message.reference;
   if (!reference) return null;
   const sources = effectiveReferenceSources(reference);

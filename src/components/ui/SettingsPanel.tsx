@@ -10,6 +10,7 @@ import { fetchModels, testConnection } from '../../services/providers/api';
 import type { LLMConfig } from '../../types/chat';
 import { isDeepSeekEndpoint } from '../../services/providers/thinking';
 import { isDesktopRuntime } from '../../services/providers/transport';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 export function SettingsPanel() {
   const { t } = useTranslation();
@@ -36,6 +37,7 @@ export function SettingsPanel() {
   const tab = useSettingsStore((s) => s.settingsSection);
   const setTab = (settingsSection: string) => useSettingsStore.setState({ settingsSection });
   const close = () => setShowSettings(false);
+  useCancelLayer(showSettings, close, 11000);
 
   // 更改接口后旧请求的结果不能写回，避免显示其他服务商的模型或连接状态。
   const handleConfigChange = (changes: Partial<LLMConfig>) => {
@@ -365,6 +367,5 @@ export function SettingsPanel() {
   return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/45 p-6" onKeyDown={(event) => {
     // 设置内的按键不传到画布；关闭设置不会触发卡片操作。
     event.stopPropagation();
-    if (event.key === 'Escape') close();
   }}>{panel}</div>, document.body);
 }
