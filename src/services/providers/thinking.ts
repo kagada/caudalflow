@@ -4,7 +4,7 @@ export function isDeepSeekEndpoint(endpoint: string): boolean {
   try { return new URL(endpoint.trim()).hostname === 'api.deepseek.com'; } catch { return false; }
 }
 
-function isBailianEndpoint(endpoint: string): boolean {
+export function isBailianEndpoint(endpoint: string): boolean {
   try {
     const hostname = new URL(endpoint.trim()).hostname;
     return hostname === 'dashscope.aliyuncs.com' || /^dashscope-[a-z-]+\.aliyuncs\.com$/.test(hostname) || hostname.endsWith('.maas.aliyuncs.com');

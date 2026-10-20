@@ -55,7 +55,11 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
   const [modelName, setModelName] = useState('');
   const [testModel, setTestModel] = useState(provider.models[0]?.id ?? '');
   const version = useRef(0);
-  const change: typeof updateProvider = (id, changes) => { version.current++; setResult(''); updateProvider(id, changes); };
+  const change: typeof updateProvider = (id, changes) => {
+    version.current++; setResult('');
+    // 地址改变后，旧服务端报告的能力不能套用到新地址。
+    updateProvider(id, changes.endpoint !== undefined && changes.endpoint !== provider.endpoint ? { ...changes, models: provider.models.map((model) => ({ ...model, webSearchSupported: undefined })) } : changes);
+  };
 
   // 丢弃地址或密钥修改前发起的请求结果，避免把旧端点的模型写入新配置。
   async function request(sync: boolean) {
@@ -69,7 +73,7 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
         // 已添加的模型也更新能力信息，同时保留用户名称、默认强度及启用状态。
         for (const model of fetched) {
           const existing = entries.get(model.id);
-          entries.set(model.id, { ...existing, ...model, effort: model.effort, name: existing?.name ?? model.name, enabled: existing?.enabled ?? false,
+          entries.set(model.id, { ...existing, ...model, effort: model.effort, webSearchSupported: model.webSearchSupported, name: existing?.name ?? model.name, enabled: existing?.enabled ?? false,
             defaultThinkingEffort: existing?.defaultThinkingEffort, defaultWebSearch: existing?.defaultWebSearch });
         }
         setCandidates([...entries.values()]); setSelectedModels(provider.models.map((model) => model.id)); setSearch(''); setDialog(true);
@@ -127,8 +131,8 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
         <label className="flex flex-col gap-1"><span className="text-[10px] text-text-muted">默认思考强度</span><select aria-label={`${model.id} 默认思考强度`} className="h-9 max-w-full rounded-lg border border-border bg-transparent px-2 text-xs text-text-secondary focus:outline-none focus:border-accent-500" value={defaultThinkingEffort(model, legacy)} onChange={(event) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultThinkingEffort: event.target.value } : item) })}>
           {thinkingEffortOptions(model).map((effort) => <option key={effort} value={effort}>{effort === 'auto' ? '默认' : thinkingEffortLabel(effort)}</option>)}
         </select></label>
-        <label className="flex flex-col gap-1"><span className="text-[10px] text-text-muted">默认联网</span><select aria-label={`${model.id} 默认联网搜索`} className="h-9 max-w-full rounded-lg border border-border bg-transparent px-2 text-xs text-text-secondary focus:outline-none focus:border-accent-500 disabled:opacity-40" disabled={!supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id })} value={supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id }) ? String(model.defaultWebSearch === true) : 'unsupported'} onChange={(event) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultWebSearch: event.target.value === 'true' } : item) })}>
-          {supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id }) ? <><option value="false">关闭</option><option value="true">开启</option></> : <option value="unsupported">不支持</option>}
+        <label className="flex flex-col gap-1"><span className="text-[10px] text-text-muted">默认联网</span><select aria-label={`${model.id} 默认联网搜索`} className="h-9 max-w-full rounded-lg border border-border bg-transparent px-2 text-xs text-text-secondary focus:outline-none focus:border-accent-500 disabled:opacity-40" disabled={!supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id, webSearchSupported: model.webSearchSupported })} value={supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id, webSearchSupported: model.webSearchSupported }) ? String(model.defaultWebSearch === true) : 'unsupported'} onChange={(event) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultWebSearch: event.target.value === 'true' } : item) })}>
+          {supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id, webSearchSupported: model.webSearchSupported }) ? <><option value="false">关闭</option><option value="true">开启</option></> : <option value="unsupported">{provider.id === 'bailian' && model.webSearchSupported === undefined ? '未获取能力' : '不支持'}</option>}
         </select></label>
       <button className="h-9 rounded-lg border border-border px-3 text-sm hover:bg-surface-700 disabled:opacity-40" disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button><button aria-label={`删除模型 ${model.id}`} title="删除模型" className="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-red-500/10 hover:text-red-400" onClick={() => deleteModel(model.id)}><Trash2 size={16} /></button></div></div>)}</div>
       <p className="text-xs text-text-muted">未指定模型的会话使用默认模型，未单独设置强度时使用该模型的默认思考强度。重新获取模型列表可更新可选强度。关闭已选模型后，会话保留选择并提示重新启用。</p>

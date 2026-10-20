@@ -96,3 +96,18 @@ it('inherits search defaults, honors false overrides, blocks unsupported models 
   useModelStore.getState().updateProvider('deepseek', { endpoint: 'https://example.com' });
   expect(resolveModelConfig('b').webSearch).toBe(false);
 });
+
+it('permits Bailian search only with reported support and preserves explicit conversation overrides', () => {
+  const models = [{ id: 'new-model', name: 'New', enabled: true, defaultWebSearch: true, webSearchSupported: true }];
+  useModelStore.setState({ providers: [{ id: 'bailian', name: '百炼', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: 'secret', enabled: true, models }], defaultModel: { providerId: 'bailian', providerName: '百炼', modelId: 'new-model' } });
+  expect(resolveModelConfig('b')).toMatchObject({ webSearch: true, webSearchSupported: true });
+  generateTitle('question', '', vi.fn(), { nodeId: 'b' });
+  expect(provider.streamChat.mock.calls.at(-1)?.[1].webSearch).toBe(false);
+  useFlowStore.getState().updateNodeData('b', { webSearch: false });
+  expect(resolveModelConfig('b').webSearch).toBe(false);
+  useFlowStore.getState().updateNodeData('b', { webSearch: true });
+  useModelStore.getState().updateProvider('bailian', { models: [{ ...models[0], webSearchSupported: undefined }] });
+  expect(resolveModelConfig('b').webSearch).toBe(false);
+  useModelStore.getState().updateProvider('bailian', { models: [{ ...models[0], webSearchSupported: false }] });
+  expect(resolveModelConfig('b').webSearch).toBe(false);
+});

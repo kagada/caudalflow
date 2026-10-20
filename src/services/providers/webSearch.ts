@@ -2,8 +2,9 @@ import type { LLMConfig } from '../../types/chat';
 import { apiFetch } from './transport';
 import type { StreamCallbacks } from './types';
 
-// 只声明已接入的官方模型能力，第三方兼容接口不能据名称推断搜索可用。
-export function supportsWebSearch(config: Pick<LLMConfig, 'providerId' | 'endpoint' | 'model'>): boolean {
+// 百炼只认接口报告的能力；DeepSeek 保持已有官方工具接入条件。
+export function supportsWebSearch(config: Pick<LLMConfig, 'providerId' | 'endpoint' | 'model' | 'webSearchSupported'>): boolean {
+  if (config.providerId === 'bailian') return config.webSearchSupported === true;
   try {
     const url = new URL(config.endpoint.trim());
     return config.providerId === 'deepseek' && url.origin === 'https://api.deepseek.com'

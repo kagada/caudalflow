@@ -63,6 +63,23 @@ it('edits each model search default and lets conversations inherit until explici
   expect(useFlowStore.getState().nodes[0].data.webSearch).toBe(false);
 });
 
+it('enables Bailian search from refreshed interface metadata and invalidates it when the endpoint changes', async () => {
+  const endpoint = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+  useModelStore.setState({ providers: [{ id: 'bailian', name: '百炼', endpoint, apiKey: 'secret', enabled: true, models: [{ id: 'future-model', name: 'Future', enabled: true }] }], defaultModel: null });
+  await act(async () => root.render(<ModelManagement />));
+  const select = () => document.querySelector<HTMLSelectElement>('[aria-label="future-model 默认联网搜索"]')!;
+  expect(select().disabled).toBe(true);
+  expect(select().textContent).toBe('未获取能力');
+  vi.mocked(fetchModels).mockResolvedValue([{ id: 'future-model', name: 'Future', webSearchSupported: true }]);
+  await click('模型列表'); await click('保存选择');
+  expect(select().disabled).toBe(false);
+  await act(async () => { select().value = 'true'; select().dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(useModelStore.getState().providers[0].models[0]).toMatchObject({ webSearchSupported: true, defaultWebSearch: true });
+  await input('供应商 API 地址', 'https://other.example.com/v1');
+  expect(select().disabled).toBe(true);
+  expect(useModelStore.getState().providers[0].models[0].webSearchSupported).toBeUndefined();
+});
+
 it('adds only selected models to the outer list on save', async () => {
   vi.mocked(fetchModels).mockResolvedValue([{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }]);
   await act(async () => root.render(<ModelManagement />));

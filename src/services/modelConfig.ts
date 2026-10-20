@@ -33,7 +33,7 @@ export function resolveModelConfig(nodeId?: string): LLMConfig {
   // 会话显式关闭也必须保留；未选择时才继承模型默认联网设置。
   const searchOverride = nodeId ? useFlowStore.getState().nodes.find((node) => node.id === nodeId)?.data.webSearch : undefined;
   const webSearch = (searchOverride ?? model.defaultWebSearch ?? false)
-    && supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id });
+    && supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id, webSearchSupported: model.webSearchSupported });
   return { ...base, providerId: provider.id, providerName: provider.name, endpoint: provider.endpoint.trim(), apiKey: provider.apiKey.trim(), model: model.id,
-    webSearch, thinkingMode: effort === 'none' ? 'disabled' : effort === 'auto' ? 'auto' : 'enabled', thinkingEffort: ['none', 'auto'].includes(effort) ? undefined : effort };
+    webSearch, webSearchSupported: model.webSearchSupported, thinkingMode: effort === 'none' ? 'disabled' : effort === 'auto' ? 'auto' : 'enabled', thinkingEffort: ['none', 'auto'].includes(effort) ? undefined : effort };
 }

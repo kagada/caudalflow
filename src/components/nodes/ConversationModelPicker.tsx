@@ -61,7 +61,7 @@ export function ConversationModelPicker({ nodeId, disabled }: { nodeId: string; 
       </div>}
       <div className="mt-2 space-y-2 border-t border-border px-2 pt-3 pb-2">
         <div className="flex items-center justify-between text-xs text-text-muted"><span>联网搜索</span>
-          {resolved && supportsWebSearch(resolved) ? <ToggleSwitch label="联网搜索" checked={resolved.webSearch === true} disabled={disabled || !available} onChange={(webSearch) => useFlowStore.getState().updateNodeData(nodeId, { webSearch })} /> : <span>不支持</span>}
+          {resolved && supportsWebSearch(resolved) ? <ToggleSwitch label="联网搜索" checked={resolved.webSearch === true} disabled={disabled || !available} onChange={(webSearch) => useFlowStore.getState().updateNodeData(nodeId, { webSearch })} /> : <span>{resolved?.providerId === 'bailian' && resolved.webSearchSupported === undefined ? '未获取能力' : '不支持'}</span>}
         </div>
       </div>
       <button className="mt-2 flex w-full items-center gap-2 border-t border-border px-3 pt-3 pb-2 text-xs text-text-secondary" onClick={() => {

@@ -22,6 +22,7 @@ export async function readOpenAIStream(response: Response, callbacks: StreamCall
     if (!data) return false;
     if (data === '[DONE]') return true;
     const parsed = JSON.parse(data);
+    if (parsed.search_info || parsed.usage?.plugins) callbacks.onDebug?.({ stage: '接口返回联网信息', data: parsed });
     if (parsed.error) throw new Error(parsed.error.message || '接口返回了流式错误。');
     const usage = openAIUsage(parsed.usage);
     if (usage) callbacks.onUsage?.(usage);
@@ -77,7 +78,7 @@ export async function readOpenAIStream(response: Response, callbacks: StreamCall
     if (!contentReceived) throw new Error(reasoningReceived
       ? '模型返回了思考内容，但没有返回正文。请关闭思考模式或提高最大输出令牌数后重试。'
       : '接口已结束，但没有返回正文。请检查模型和接口是否支持 Chat Completions 流式输出。');
-    if (allowTools) callbacks.onDebug?.({ stage: '模型返回回答', data: { content, reasoning_content: reasoning, finish_reason: finishReason } });
+    callbacks.onDebug?.({ stage: '模型返回回答', data: { content, reasoning_content: reasoning, finish_reason: finishReason } });
     callbacks.onDone();
   } finally {
     if (!signal.aborted) await reader.cancel().catch(() => {});

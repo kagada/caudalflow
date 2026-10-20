@@ -44,11 +44,15 @@ export const CustomProvider: LLMProvider = {
       stream: true,
       stream_options: { include_usage: true },
       ...thinkingParameters(config.endpoint, config.thinkingMode, config.thinkingEffort, config.providerId),
+      // 百炼由服务端按需联网；关闭和辅助请求必须明确禁止搜索。
+      ...(config.providerId === 'bailian' ? { enable_search: config.webSearch === true && config.webSearchSupported === true,
+        ...(config.webSearch && config.webSearchSupported ? { search_options: { forced_search: false } } : {}) } : {}),
     };
 
     try {
       if (!config.model.trim()) throw new Error('Please enter a model ID in Settings.');
       const chatUrl = resolveOpenAIEndpoint(config.endpoint, 'chat/completions');
+      callbacks.onDebug?.({ stage: '模型请求', data: { url: chatUrl, body } });
       const response = await usageAwareChatFetch(chatUrl, {
         method: 'POST',
         headers: {
@@ -67,6 +71,7 @@ export const CustomProvider: LLMProvider = {
       await readOpenAIStream(response, callbacks, signal);
     } catch (error) {
       if (signal.aborted) return;
+      callbacks.onDebug?.({ stage: '流程中断', data: { message: error instanceof Error ? error.message : String(error) } });
       callbacks.onError(error instanceof Error ? error : new Error(String(error)));
     }
   },
