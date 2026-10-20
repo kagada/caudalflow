@@ -49,9 +49,9 @@ it('edits each model search default and lets conversations inherit until explici
   useModelStore.setState({ providers: [{ id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', apiKey: 'secret', enabled: true, models: [{ id: 'deepseek-flash', name: 'Flash', enabled: true }] }], defaultModel: { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'deepseek-flash' } });
   useFlowStore.setState({ nodes: [{ id: 'defaults', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '默认设置' } }] });
   await act(async () => root.render(<ModelManagement />));
-  const modelToggle = document.querySelector<HTMLInputElement>('[aria-label="deepseek-flash 默认联网搜索"]')!;
-  expect(modelToggle.checked).toBe(false);
-  await act(async () => modelToggle.click());
+  const modelToggle = document.querySelector<HTMLSelectElement>('[aria-label="deepseek-flash 默认联网搜索"]')!;
+  expect(modelToggle.value).toBe('false');
+  await act(async () => { modelToggle.value = 'true'; modelToggle.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(useModelStore.getState().providers[0].models[0].defaultWebSearch).toBe(true);
   await act(async () => root.render(<ConversationModelPicker nodeId="defaults" disabled={false} />));
   await click('会话模型设置');
@@ -175,7 +175,7 @@ it('refreshes existing model capabilities while retaining defaults and allows a 
   await click('模型列表'); await click('保存选择');
   const model = useModelStore.getState().providers[0].models[0];
   expect(model).toMatchObject({ name: 'My model', enabled: true, defaultThinkingEffort: 'low', effort: { supportedLevels: ['low', 'high', 'max'] } });
-  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[aria-label="one 默认思考强度"] button')].find((button) => button.textContent === '最高')!.click());
+  await act(async () => { const select = document.querySelector<HTMLSelectElement>('[aria-label="one 默认思考强度"]')!; select.value = 'max'; select.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(useModelStore.getState().providers[0].models[0].defaultThinkingEffort).toBe('max');
   expect(JSON.parse(localStorage.getItem('caudalflow-local-models')!).state.providers[0].models[0].defaultThinkingEffort).toBe('max');
   useFlowStore.setState({ nodes: [{ id: 'a', type: 'chat', position: { x: 0, y: 0 }, data: { topic: 'A' } }] });

@@ -3,10 +3,8 @@ import { Eye, EyeOff, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { useModelStore } from '../../stores/modelStore';
 import { fetchModels, testConnection } from '../../services/providers/api';
 import type { ManagedModel } from '../../types/chat';
-import { ThinkingEffortControl } from './ThinkingEffortControl';
-import { defaultThinkingEffort, thinkingEffortOptions } from '../../services/modelThinking';
+import { defaultThinkingEffort, thinkingEffortLabel, thinkingEffortOptions } from '../../services/modelThinking';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { ToggleSwitch } from './ToggleSwitch';
 import { supportsWebSearch } from '../../services/providers/webSearch';
 
 const field = 'w-full rounded-xl border border-border bg-surface-800 px-3 py-2 text-sm focus:outline-none focus:border-accent-500';
@@ -108,6 +106,7 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
     if (testModel === id) setTestModel(models[0]?.id ?? '');
   }
 
+  // 菜单与操作按钮共用等高的底部操作行，标题不再影响控件的中线对齐。
   return <section className="min-w-0 flex-1 p-5 space-y-5">
       <header className="flex items-center justify-between"><h3 className="font-semibold">{provider.id === 'deepseek' ? 'DeepSeek · 深度求索' : provider.name}</h3><label className="flex gap-2 text-sm"><input type="checkbox" checked={provider.enabled} onChange={(e) => change(provider.id, { enabled: e.target.checked })} />启用供应商</label></header>
       <p className="text-xs text-text-muted">API 密钥和地址仅保存在这台电脑，不写入 workspace。换电脑后重新配置相同供应商和模型 ID 即可继续会话。</p>
@@ -124,10 +123,14 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
           <footer className="flex justify-end gap-2"><button type="button" className={button} onClick={() => setManual(false)}>取消</button><button type="submit" className={button} disabled={!modelId.trim()}>添加并启用</button></footer>
         </form>
       </ModelDialog>}
-      <div className="rounded-xl border border-border divide-y divide-border">{!provider.models.length && <p className="p-5 text-sm text-text-muted">暂无模型。打开“模型列表”选择启用，或通过“自定模型”添加。</p>}{provider.models.map((model) => <div key={model.id} className="flex flex-wrap items-center gap-3 p-3"><label className="flex min-w-0 flex-1 items-center gap-3"><input aria-label={`启用 ${model.id}`} type="checkbox" checked={model.enabled} onChange={(e) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item) })} /><span className="min-w-0"><span className="block truncate text-sm">{model.name}</span><span className="block truncate text-xs text-text-muted">{model.id}</span></span></label><div className="flex shrink-0 flex-wrap items-start gap-x-5 gap-y-2">
-        <div className="space-y-1"><span className="block text-[10px] text-text-muted">默认思考强度</span><ThinkingEffortControl label={`${model.id} 默认思考强度`} options={thinkingEffortOptions(model)} value={defaultThinkingEffort(model, legacy)} onChange={(effort) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultThinkingEffort: effort } : item) })} /></div>
-        <div className="flex flex-col items-start gap-1 text-[10px] text-text-muted"><span>默认联网搜索</span>{supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id }) ? <ToggleSwitch label={`${model.id} 默认联网搜索`} checked={model.defaultWebSearch === true} onChange={(defaultWebSearch) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultWebSearch } : item) })} /> : <span>不支持</span>}</div>
-      </div><button className={button} disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button><button aria-label={`删除模型 ${model.id}`} title="删除模型" className="rounded-lg p-2 text-text-muted hover:bg-red-500/10 hover:text-red-400" onClick={() => deleteModel(model.id)}><Trash2 size={16} /></button></div>)}</div>
+      <div className="rounded-xl border border-border divide-y divide-border">{!provider.models.length && <p className="p-5 text-sm text-text-muted">暂无模型。打开“模型列表”选择启用，或通过“自定模型”添加。</p>}{provider.models.map((model) => <div key={model.id} className="flex flex-wrap items-center gap-3 p-3"><label className="flex min-w-[9rem] flex-1 items-center gap-3"><input aria-label={`启用 ${model.id}`} type="checkbox" checked={model.enabled} onChange={(e) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, enabled: e.target.checked } : item) })} /><span className="min-w-0"><span className="block truncate text-sm">{model.name}</span><span className="block truncate text-xs text-text-muted">{model.id}</span></span></label><div className="flex min-w-0 flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1"><span className="text-[10px] text-text-muted">默认思考强度</span><select aria-label={`${model.id} 默认思考强度`} className="h-9 max-w-full rounded-lg border border-border bg-transparent px-2 text-xs text-text-secondary focus:outline-none focus:border-accent-500" value={defaultThinkingEffort(model, legacy)} onChange={(event) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultThinkingEffort: event.target.value } : item) })}>
+          {thinkingEffortOptions(model).map((effort) => <option key={effort} value={effort}>{effort === 'auto' ? '默认' : thinkingEffortLabel(effort)}</option>)}
+        </select></label>
+        <label className="flex flex-col gap-1"><span className="text-[10px] text-text-muted">默认联网</span><select aria-label={`${model.id} 默认联网搜索`} className="h-9 max-w-full rounded-lg border border-border bg-transparent px-2 text-xs text-text-secondary focus:outline-none focus:border-accent-500 disabled:opacity-40" disabled={!supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id })} value={supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id }) ? String(model.defaultWebSearch === true) : 'unsupported'} onChange={(event) => updateProvider(provider.id, { models: provider.models.map((item) => item.id === model.id ? { ...item, defaultWebSearch: event.target.value === 'true' } : item) })}>
+          {supportsWebSearch({ providerId: provider.id, endpoint: provider.endpoint, model: model.id }) ? <><option value="false">关闭</option><option value="true">开启</option></> : <option value="unsupported">不支持</option>}
+        </select></label>
+      <button className="h-9 rounded-lg border border-border px-3 text-sm hover:bg-surface-700 disabled:opacity-40" disabled={!model.enabled || !provider.enabled} onClick={() => setDefaultModel({ providerId: provider.id, providerName: provider.name, modelId: model.id })}>{defaultModel?.providerId === provider.id && defaultModel.modelId === model.id ? '默认模型' : '设为默认'}</button><button aria-label={`删除模型 ${model.id}`} title="删除模型" className="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-red-500/10 hover:text-red-400" onClick={() => deleteModel(model.id)}><Trash2 size={16} /></button></div></div>)}</div>
       <p className="text-xs text-text-muted">未指定模型的会话使用默认模型，未单独设置强度时使用该模型的默认思考强度。重新获取模型列表可更新可选强度。关闭已选模型后，会话保留选择并提示重新启用。</p>
       {dialog && <ModelDialog title={`${provider.name} 模型 · ${candidates.length}`} label="模型列表" onClose={() => setDialog(false)}>
         <input autoFocus aria-label="搜索模型" className={field} placeholder="搜索模型…" value={search} onChange={(event) => setSearch(event.target.value)} />
