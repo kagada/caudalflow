@@ -50,7 +50,8 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
       const fail = (error: Error) => { usage.fail(); finish(); reject(error); };
       try {
         provider.streamChat([{ id: 'summary-system', role: 'system', content: instruction, timestamp: 0 }, ...modelMessages(input).map((message) => ({ ...message, role: message.role === 'system' ? 'user' as const : message.role }))],
-          { ...config, maxTokens: Math.max(128, Math.min(4096, maxChars * 3)), thinkingMode: 'disabled' }, {
+          // 摘要只整理已有资料，不继承会话的付费搜索权限。
+          { ...config, webSearch: false, maxTokens: Math.max(128, Math.min(4096, maxChars * 3)), thinkingMode: 'disabled' }, {
             onUsage: usage.onUsage,
             onToken: (token) => { text += token; },
             onDone: () => { usage.complete(); finish(); if (text.trim()) resolve(text.trim()); else reject(new Error('模型没有返回摘要，请重试')); },

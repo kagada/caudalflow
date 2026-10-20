@@ -1,6 +1,8 @@
 import type { ChatMessage, LLMConfig, TokenUsage } from '../../types/chat';
+import type { WebSearchDebugEvent } from '../webSearchDebug';
 
 export interface StreamCallbacks {
+  onDebug?: (event: WebSearchDebugEvent) => void;
   onToken: (token: string) => void;
   onReasoning?: (token: string) => void;
   onUsage?: (usage: TokenUsage) => void;

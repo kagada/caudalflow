@@ -85,10 +85,11 @@ export interface LLMConfig {
   mockDelay: number;
   thinkingMode?: 'auto' | 'enabled' | 'disabled';
   thinkingEffort?: string;
+  webSearch?: boolean;
 }
 
 // 会话只保存公开标识；地址和密钥始终从本机供应商配置读取。
 export interface ModelSelection { providerId: string; providerName: string; modelId: string }
 export interface ModelEffort { supportedLevels: string[]; defaultLevel?: string }
-export interface ManagedModel { id: string; name: string; enabled: boolean; effort?: ModelEffort; defaultThinkingEffort?: string }
+export interface ManagedModel { id: string; name: string; enabled: boolean; effort?: ModelEffort; defaultThinkingEffort?: string; defaultWebSearch?: boolean }
 export interface ProviderConfig { id: string; name: string; endpoint: string; apiKey: string; enabled: boolean; models: ManagedModel[] }

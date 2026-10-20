@@ -6,6 +6,8 @@ export interface ChatNodeData {
   modelSelection?: ModelSelection;
   // 会话强度覆盖本机模型默认值，迁移工作区后仍保留用户选择。
   thinkingEffort?: string;
+  // 未设置时跟随模型默认值，显式开关随会话保存并优先于默认值。
+  webSearch?: boolean;
   // 手动命名优先于后台自动标题，避免晚到结果覆盖用户输入。
   titleSource?: 'pending' | 'temporary' | 'generated' | 'manual';
   parentNodeId?: string;

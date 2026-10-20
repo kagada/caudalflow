@@ -28,6 +28,41 @@ async function input(label: string, value: string) {
   });
 }
 
+it('saves the search switch per conversation and disables it for unsupported models', async () => {
+  useModelStore.setState({ providers: [{ id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', apiKey: 'secret', enabled: true, models: [{ id: 'deepseek-flash', name: 'Flash', enabled: true }] }], defaultModel: { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'deepseek-flash' } });
+  useFlowStore.setState({ nodes: [{ id: 'search', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '搜索' } }] });
+  await act(async () => root.render(<ConversationModelPicker nodeId="search" disabled={false} />));
+  await click('会话模型设置');
+  const toggle = () => document.querySelector<HTMLInputElement>('[aria-label="联网搜索"]')!;
+  expect(toggle().checked).toBe(false);
+  expect(toggle().disabled).toBe(false);
+  await act(async () => toggle().click());
+  expect(useFlowStore.getState().nodes[0].data.webSearch).toBe(true);
+  expect(document.body.textContent).not.toContain('可能产生额外费用');
+  expect(toggle().parentElement?.className).toContain('w-11');
+  await act(async () => useModelStore.getState().updateProvider('deepseek', { endpoint: 'https://example.com' }));
+  expect(toggle()).toBeNull();
+  expect(document.body.textContent).toContain('不支持');
+});
+
+it('edits each model search default and lets conversations inherit until explicitly changed', async () => {
+  useModelStore.setState({ providers: [{ id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', apiKey: 'secret', enabled: true, models: [{ id: 'deepseek-flash', name: 'Flash', enabled: true }] }], defaultModel: { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'deepseek-flash' } });
+  useFlowStore.setState({ nodes: [{ id: 'defaults', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '默认设置' } }] });
+  await act(async () => root.render(<ModelManagement />));
+  const modelToggle = document.querySelector<HTMLInputElement>('[aria-label="deepseek-flash 默认联网搜索"]')!;
+  expect(modelToggle.checked).toBe(false);
+  await act(async () => modelToggle.click());
+  expect(useModelStore.getState().providers[0].models[0].defaultWebSearch).toBe(true);
+  await act(async () => root.render(<ConversationModelPicker nodeId="defaults" disabled={false} />));
+  await click('会话模型设置');
+  const conversationToggle = () => document.querySelector<HTMLInputElement>('[aria-label="联网搜索"]')!;
+  expect(conversationToggle().checked).toBe(true);
+  expect(useFlowStore.getState().nodes[0].data.webSearch).toBeUndefined();
+  await act(async () => conversationToggle().click());
+  expect(conversationToggle().checked).toBe(false);
+  expect(useFlowStore.getState().nodes[0].data.webSearch).toBe(false);
+});
+
 it('adds only selected models to the outer list on save', async () => {
   vi.mocked(fetchModels).mockResolvedValue([{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }]);
   await act(async () => root.render(<ModelManagement />));

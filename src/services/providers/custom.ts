@@ -5,7 +5,7 @@ import { readOpenAIStream } from './openaiStream';
 import { thinkingParameters } from './thinking';
 import { usageAwareChatFetch } from './transport';
 
-function toOpenAIMessages(messages: ChatMessage[]) {
+export function toOpenAIMessages(messages: ChatMessage[]) {
   return messages.map((m) => {
     if (m.images && m.images.length > 0) {
       return {

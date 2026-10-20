@@ -78,3 +78,21 @@ it('honors disabled providers for both the managed default and the legacy defaul
     expect(resolveModelConfig('b').model).toBe('one');
   } finally { useSettingsStore.setState({ llmConfig: original }); }
 });
+
+it('inherits search defaults, honors false overrides, blocks unsupported models and keeps titles offline', () => {
+  useModelStore.setState({ providers: [{ id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', apiKey: 'secret', enabled: true, models: [
+    { id: 'deepseek-flash', name: 'Flash', enabled: true, defaultWebSearch: true },
+    { id: 'deepseek-pro', name: 'Pro', enabled: true, defaultWebSearch: false },
+  ] }], defaultModel: { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'deepseek-flash' } });
+  expect(resolveModelConfig('b').webSearch).toBe(true);
+  useFlowStore.getState().updateNodeData('b', { webSearch: false });
+  expect(resolveModelConfig('b').webSearch).toBe(false);
+  useFlowStore.getState().updateNodeData('b', { webSearch: undefined, modelSelection: { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'deepseek-pro' } });
+  expect(resolveModelConfig('b').webSearch).toBe(false);
+  useFlowStore.getState().updateNodeData('b', { webSearch: true });
+  expect(resolveModelConfig('b').webSearch).toBe(true);
+  generateTitle('question', '', vi.fn(), { nodeId: 'b' });
+  expect(provider.streamChat.mock.calls.at(-1)?.[1].webSearch).toBe(false);
+  useModelStore.getState().updateProvider('deepseek', { endpoint: 'https://example.com' });
+  expect(resolveModelConfig('b').webSearch).toBe(false);
+});

@@ -11,6 +11,7 @@ import type { ReferenceSelection } from '../../types/chat';
 import { createReference } from '../../services/references';
 import { copyReference } from '../../services/referenceClipboard';
 import { ChatMessage } from './ChatMessage';
+import { WebSearchDebug } from './WebSearchDebug';
 import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
 import { DocumentVersions } from './DocumentVersions';
@@ -86,6 +87,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         className="nowheel nodrag nopan h-full overflow-y-auto select-text"
         onMouseUp={onMouseUp}
       >
+        <WebSearchDebug nodeId={nodeId} />
         {!!usage?.length && <div className="px-6"><UsageStatistics usage={usage} label="本会话累计" /></div>}
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-text-muted text-sm px-4 text-center">

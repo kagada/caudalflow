@@ -8,11 +8,14 @@ import { openModelSettings } from '../../services/modelSettings';
 import { resolveModelConfig } from '../../services/modelConfig';
 import { thinkingEffortLabel, thinkingEffortOptions } from '../../services/modelThinking';
 import { ThinkingEffortControl } from '../ui/ThinkingEffortControl';
+import { supportsWebSearch } from '../../services/providers/webSearch';
+import { ToggleSwitch } from '../ui/ToggleSwitch';
 
 // 会话选项只写入可迁移的公开标识，弹层放到画布外避免被卡片裁切。
 export function ConversationModelPicker({ nodeId, disabled }: { nodeId: string; disabled: boolean }) {
   const selection = useFlowStore((state) => state.nodes.find((node) => node.id === nodeId)?.data.modelSelection);
   const override = useFlowStore((state) => state.nodes.find((node) => node.id === nodeId)?.data.thinkingEffort);
+  useFlowStore((state) => state.nodes.find((node) => node.id === nodeId)?.data.webSearch);
   const { providers, defaultModel } = useModelStore();
   const legacy = useSettingsStore((state) => state.llmConfig);
   const current = selection ?? defaultModel;
@@ -56,6 +59,11 @@ export function ConversationModelPicker({ nodeId, disabled }: { nodeId: string; 
         <ThinkingEffortControl label="会话思考强度" options={['inherit', ...sessionOptions]} value={override && sessionOptions.includes(override) ? override : 'inherit'} disabled={!available || disabled} onChange={(value) => useFlowStore.getState().updateNodeData(nodeId, { thinkingEffort: value === 'inherit' ? undefined : value })} />
         {!model.effort && <p className="text-[10px] text-text-muted">获取模型列表后可读取支持的强度档位。</p>}
       </div>}
+      <div className="mt-2 space-y-2 border-t border-border px-2 pt-3 pb-2">
+        <div className="flex items-center justify-between text-xs text-text-muted"><span>联网搜索</span>
+          {resolved && supportsWebSearch(resolved) ? <ToggleSwitch label="联网搜索" checked={resolved.webSearch === true} disabled={disabled || !available} onChange={(webSearch) => useFlowStore.getState().updateNodeData(nodeId, { webSearch })} /> : <span>不支持</span>}
+        </div>
+      </div>
       <button className="mt-2 flex w-full items-center gap-2 border-t border-border px-3 pt-3 pb-2 text-xs text-text-secondary" onClick={() => {
         setPosition(null);
         void openModelSettings();

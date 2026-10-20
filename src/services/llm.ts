@@ -7,6 +7,8 @@ import { trackGeneration } from './streamLifecycle';
 import { modelMessages } from './references';
 import { DEFAULT_BUILTIN_PROMPTS } from './builtinPrompts';
 import { trackRequestUsage, type UsageTarget } from './requestUsage';
+import { createWebSearchDebugger } from './webSearchDebug';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 
 export function streamChat(
   messages: ChatMessage[],
@@ -26,8 +28,11 @@ export function streamChat(
 
   const tracked = trackGeneration(signal);
   const usage = trackRequestUsage(usageTarget, 'answer', config, tracked.controller.signal);
+  const debug = config.webSearch && usageTarget ? createWebSearchDebugger(useWorkspaceStore.getState().activeWorkspaceId, usageTarget.nodeId, usageTarget.documentId) : undefined;
+  tracked.controller.signal.addEventListener('abort', () => debug?.({ stage: '已取消', data: {} }), { once: true });
   // 请求取消后不再回调 store，避免历史恢复或撤销后被晚到响应覆盖。
   provider.streamChat(modelMessages(messages), config, {
+    onDebug: debug,
     onToken: (token) => { if (!tracked.controller.signal.aborted) callbacks.onToken(token); },
     onReasoning: (token) => { if (!tracked.controller.signal.aborted) callbacks.onReasoning?.(token); },
     onUsage: (value) => { if (!tracked.controller.signal.aborted) { usage.onUsage(value); callbacks.onUsage?.(value); } },
@@ -48,7 +53,7 @@ export function generateTitle(
   if (!provider) return;
 
   // 标题只需简短输出，支持关闭思考的接口无需为命名消耗正文的思考预算。
-  const titleConfig: LLMConfig = { ...config, maxTokens: 128, thinkingMode: 'disabled' };
+  const titleConfig: LLMConfig = { ...config, webSearch: false, maxTokens: 128, thinkingMode: 'disabled' };
   const messages: ChatMessage[] = [
     {
       id: 'system',
