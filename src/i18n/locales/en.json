@@ -98,10 +98,10 @@
   },
   "welcome": {
     "title": "Welcome to CaudalFlow",
-    "mockModeDescription": "You're currently in <1>mock mode</1> — responses are simulated so you can explore the canvas without an API key.",
-    "realAiDescription": "Open Settings, choose Custom API (OpenAI compatible), and enter your API URL, key, and model to start chatting.",
+    "setupDescription": "Configure a provider and choose a default model in Model Management before starting a conversation.",
+    "realAiDescription": "Open Model Management, enter your API URL and key, then add a model and set it as default.",
     "openSettings": "Open Settings",
-    "exploreMockMode": "Explore Mock Mode"
+    "exploreCanvas": "Explore the canvas"
   },
   "workspace": {
     "defaultName": "Workspace",

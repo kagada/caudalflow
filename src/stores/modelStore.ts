@@ -4,9 +4,10 @@ import type { ModelSelection, ProviderConfig } from '../types/chat';
 import { useSettingsStore } from './settingsStore';
 
 const legacy = useSettingsStore.getState().llmConfig;
-const migrated = legacy.providerId === 'deepseek';
+const legacyDeepSeek = legacy.providerId === 'deepseek';
+const migrated = legacyDeepSeek && !!legacy.model.trim();
 const initialProviders: ProviderConfig[] = [
-  { id: 'deepseek', name: 'DeepSeek', endpoint: migrated ? legacy.endpoint : 'https://api.deepseek.com', apiKey: migrated ? legacy.apiKey : '', enabled: true,
+  { id: 'deepseek', name: 'DeepSeek', endpoint: legacyDeepSeek ? legacy.endpoint : 'https://api.deepseek.com', apiKey: legacyDeepSeek ? legacy.apiKey : '', enabled: true,
     models: migrated && legacy.model ? [{ id: legacy.model, name: legacy.model, enabled: true }] : [] },
   { id: 'bailian', name: '阿里云百炼', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: '', enabled: false, models: [] },
 ];
@@ -27,8 +28,10 @@ export const useModelStore = create<{
   // 旧目录补齐新增供应商，不能覆盖已有密钥、地址、模型开关和默认模型。
   merge: (persisted, current) => {
     const saved = persisted as Partial<typeof current> | undefined;
-    const providers = saved?.providers ?? current.providers;
-    return { ...current, ...saved, providers: [...providers, ...initialProviders.filter((preset) => !providers.some((provider) => provider.id === preset.id))] };
+    // 旧的模拟供应商和默认选择不再恢复，真实供应商的配置照常保留。
+    const providers = (saved?.providers ?? current.providers).filter((provider) => provider.id !== 'mock');
+    const defaultModel = saved?.defaultModel === undefined ? current.defaultModel : saved.defaultModel?.providerId === 'mock' ? null : saved.defaultModel;
+    return { ...current, ...saved, defaultModel, providers: [...providers, ...initialProviders.filter((preset) => !providers.some((provider) => provider.id === preset.id))] };
   },
 }));
 

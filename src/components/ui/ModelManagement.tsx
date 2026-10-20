@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Eye, EyeOff, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, ExternalLink, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { useModelStore } from '../../stores/modelStore';
 import { fetchModels, testConnection } from '../../services/providers/api';
 import type { ManagedModel } from '../../types/chat';
@@ -10,6 +10,11 @@ import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 const field = 'w-full rounded-xl border border-border bg-surface-800 px-3 py-2 text-sm focus:outline-none focus:border-accent-500';
 const button = 'rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-700 disabled:opacity-40';
+// 使用用户指定的供应商密钥管理入口，桌面端交给系统浏览器打开。
+const apiKeyPages: Record<string, string> = {
+  bailian: 'https://bailian.console.aliyun.com/model/settings/api-key',
+  deepseek: 'https://platform.deepseek.com/api_keys',
+};
 
 // 模型列表和自定模型共用独立弹窗，保持关闭方式、间距和操作位置一致。
 function ModelDialog({ title, label, onClose, children }: { title: string; label: string; onClose: () => void; children: ReactNode }) {
@@ -46,7 +51,10 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
   const legacy = useSettingsStore((state) => state.llmConfig);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState('');
+  const [resultState, updateResult] = useState({ message: '', connectionSuccess: false, error: false });
+  const { message: result, connectionSuccess, error: resultError } = resultState;
+  // 成功显示绿色勾选，失败显示红字；普通操作提示保持原色。
+  const setResult = (message: string, connectionSuccess = false, error = false) => updateResult({ message, connectionSuccess, error });
   const [dialog, setDialog] = useState(false);
   const [candidates, setCandidates] = useState<ManagedModel[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
@@ -55,7 +63,6 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
   const [manualError, setManualError] = useState('');
   const [modelId, setModelId] = useState('');
   const [modelName, setModelName] = useState('');
-  const [testModel, setTestModel] = useState(provider.models[0]?.id ?? '');
   const version = useRef(0);
   const change: typeof updateProvider = (id, changes) => {
     version.current++; setResult('');
@@ -81,11 +88,11 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
         setCandidates([...entries.values()]); setSelectedModels(provider.models.map((model) => model.id)); setSearch(''); setDialog(true);
         if (!fetched.length) setResult('端点未返回模型，可使用“自定模型”添加。');
       } else {
-        const response = await testConnection(provider.endpoint, provider.apiKey, testModel);
-        if (current === version.current) setResult(response.success ? '连接成功：模型已返回有效回复。' : `连接失败：${response.message}`);
+        const response = await testConnection(provider.endpoint, provider.apiKey);
+        if (current === version.current) setResult(response.success ? '连接成功：接口可访问，密钥验证通过' : `连接失败：${response.message}`, response.success, !response.success);
       }
     } catch (error) {
-      if (current === version.current) setResult(`获取模型列表失败：${error instanceof Error ? error.message : String(error)}。可以使用“自定模型”添加。`);
+      if (current === version.current) setResult(`获取模型列表失败：${error instanceof Error ? error.message : String(error)}。可以使用“自定模型”添加。`, false, true);
     } finally { setBusy(false); }
   }
 
@@ -94,14 +101,13 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
     if (!id) return;
     if (provider.models.some((model) => model.id === id)) { setManualError('该模型 ID 已存在，请在列表中启用。'); return; }
     updateProvider(provider.id, { models: [...provider.models, { id, name: modelName.trim() || id, enabled: true }] });
-    setTestModel(id); setManual(false); setModelId(''); setModelName(''); setResult('模型已添加并启用，可测试连接或设为默认模型。');
+    setManual(false); setModelId(''); setModelName(''); setResult('模型已添加并启用，可设为默认模型。');
   }
 
   // 弹窗只决定哪些模型加入外层，已加入模型的启用状态由外层独立维护。
   function saveModelSelection() {
     const models = candidates.filter((model) => selectedModels.includes(model.id)).map((model) => ({ ...model, enabled: provider.models.find((existing) => existing.id === model.id)?.enabled ?? true }));
     updateProvider(provider.id, { models });
-    if (!models.some((model) => model.id === testModel)) setTestModel(models[0]?.id ?? '');
     setDialog(false);
   }
 
@@ -109,17 +115,18 @@ function ProviderModelSettings({ providerId }: { providerId: string }) {
   function deleteModel(id: string) {
     const models = provider.models.filter((model) => model.id !== id);
     updateProvider(provider.id, { models });
-    if (testModel === id) setTestModel(models[0]?.id ?? '');
   }
 
   // 菜单与操作按钮共用等高的底部操作行，标题不再影响控件的中线对齐。
   return <section className="min-w-0 flex-1 p-5 space-y-5">
       <header className="flex items-center justify-between"><h3 className="font-semibold">{provider.id === 'deepseek' ? 'DeepSeek · 深度求索' : provider.name}</h3><label className="flex gap-2 text-sm"><input type="checkbox" checked={provider.enabled} onChange={(e) => change(provider.id, { enabled: e.target.checked })} />启用供应商</label></header>
       <p className="text-xs text-text-muted">API 密钥和地址仅保存在这台电脑，不写入 workspace。换电脑后重新配置相同供应商和模型 ID 即可继续会话。</p>
-      <label className="block space-y-2 text-sm">API 密钥<div className="flex gap-2"><input aria-label="供应商 API 密钥" type={visible ? 'text' : 'password'} value={provider.apiKey} onChange={(e) => change(provider.id, { apiKey: e.target.value })} className={field} autoComplete="off" /><button className={button} aria-label={visible ? '隐藏密钥' : '显示密钥'} onClick={() => setVisible(!visible)}>{visible ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>
+      <div className="space-y-2 text-sm"><div className="flex flex-wrap items-center gap-3"><label htmlFor="provider-api-key">API 密钥</label>{apiKeyPages[provider.id] && <a href={apiKeyPages[provider.id]} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-accent-400 hover:underline">获取 API 密钥<ExternalLink size={12} /></a>}</div><div className="flex gap-2"><input id="provider-api-key" aria-label="供应商 API 密钥" type={visible ? 'text' : 'password'} value={provider.apiKey} onChange={(e) => change(provider.id, { apiKey: e.target.value })} className={field} autoComplete="off" /><button className={button} aria-label={visible ? '隐藏密钥' : '显示密钥'} onClick={() => setVisible(!visible)}>{visible ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
       <label className="block space-y-2 text-sm">API 地址<input aria-label="供应商 API 地址" className={field} value={provider.endpoint} onChange={(e) => change(provider.id, { endpoint: e.target.value })} placeholder={provider.id === 'bailian' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : 'https://api.deepseek.com'} /></label>
-      <div className="flex gap-2"><input aria-label="测试模型 ID" className={field} placeholder="输入用于测试的模型 ID" value={testModel} onChange={(e) => { version.current++; setResult(''); setTestModel(e.target.value); }} /><button className={`${button} shrink-0`} disabled={busy || !provider.endpoint.trim() || !provider.apiKey.trim() || !testModel.trim()} onClick={() => void request(false)}>测试连接</button></div>
-      {result && <p role="status" className="text-sm text-accent-400 break-words">{result}</p>}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button className={`${button} shrink-0`} disabled={busy || !provider.endpoint.trim() || !provider.apiKey.trim()} onClick={() => void request(false)}>测试连接</button>
+        {result && <p role="status" className={`flex min-w-0 items-center gap-1 text-sm ${connectionSuccess ? 'text-green-500' : resultError ? 'text-red-500' : 'text-accent-400'} break-words`}><span>{result}</span>{connectionSuccess && <CheckCircle2 aria-hidden="true" size={18} className="shrink-0" />}</p>}
+      </div>
       <div className="flex items-center gap-2"><h4 className="flex-1 font-medium">模型 <span className="text-text-muted text-xs">{provider.models.filter((model) => model.enabled).length} 个已启用</span></h4><button className={`${button} flex items-center gap-2`} disabled={busy || !provider.endpoint.trim() || !provider.apiKey.trim()} onClick={() => void request(true)}><RefreshCw size={14} className={busy ? 'animate-spin' : ''} />模型列表</button><button aria-label="自定模型" className={`${button} flex items-center gap-2`} onClick={() => { setManual(true); setModelId(''); setModelName(''); setManualError(''); setResult(''); }}><Plus size={16} />自定模型</button></div>
       {manual && <ModelDialog title="自定模型" label="自定模型" onClose={() => setManual(false)}>
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); addModel(); }}>

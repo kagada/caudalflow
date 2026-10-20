@@ -14,15 +14,9 @@ export class ModelConfigurationError extends Error {
 export function resolveModelConfig(nodeId?: string): LLMConfig {
   const base = useSettingsStore.getState().llmConfig;
   const catalog = useModelStore.getState();
-  // 旧版默认值也必须遵守供应商开关，不能绕过模型管理重新启用已关闭的供应商。
-  const selection = (nodeId ? useFlowStore.getState().nodes.find((node) => node.id === nodeId)?.data.modelSelection : undefined) ?? catalog.defaultModel
-    ?? (catalog.providers.some((provider) => provider.id === base.providerId) ? { providerId: base.providerId, modelId: base.model } : null);
-  if (!selection) {
-    if (!catalog.providers.some((provider) => provider.enabled)) throw new ModelConfigurationError();
-    if (!supportsWebSearch(base)) return base.webSearch ? { ...base, webSearch: false } : base;
-    const override = nodeId ? useFlowStore.getState().nodes.find((node) => node.id === nodeId)?.data.webSearch : undefined;
-    return { ...base, webSearch: override ?? base.webSearch ?? false };
-  }
+  // 只使用用户明确选择的会话或默认模型，绝不退回旧版模拟配置。
+  const selection = (nodeId ? useFlowStore.getState().nodes.find((node) => node.id === nodeId)?.data.modelSelection : undefined) ?? catalog.defaultModel;
+  if (!selection) throw new ModelConfigurationError();
   const provider = catalog.providers.find((item) => item.id === selection.providerId);
   const model = provider?.models.find((item) => item.id === selection.modelId);
   if (!provider?.enabled || !provider.endpoint.trim() || !provider.apiKey.trim() || !model?.enabled) {

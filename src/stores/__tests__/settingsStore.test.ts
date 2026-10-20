@@ -8,14 +8,13 @@ vi.hoisted(() => {
 });
 
 const INITIAL_CONFIG = {
-  providerId: 'mock',
-    providerName: 'Mock',
+  providerId: '',
+    providerName: '',
   endpoint: 'https://api.openai.com/v1',
   apiKey: '',
-  model: 'gpt-4o-mini',
+  model: '',
   temperature: 0.7,
   maxTokens: 2048,
-  mockDelay: 30,
 };
 
 beforeEach(() => {
@@ -28,6 +27,20 @@ beforeEach(() => {
 });
 
 describe('settingsStore', () => {
+  it('clears persisted simulated model settings without losing generation parameters', async () => {
+    localStorage.setItem('caudalflow-settings', JSON.stringify({ version: 0, state: { llmConfig: { ...INITIAL_CONFIG, providerId: 'mock', providerName: 'Mock', endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini', mockDelay: 30, temperature: 0.9, maxTokens: 4096 } } }));
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().llmConfig).toMatchObject({ providerId: '', providerName: '', endpoint: '', model: '', apiKey: '', temperature: 0.9, maxTokens: 4096 });
+    expect(useSettingsStore.getState().llmConfig).not.toHaveProperty('mockDelay');
+  });
+
+  it('preserves real persisted credentials and explicit model choices', async () => {
+    const real = { ...INITIAL_CONFIG, providerId: 'deepseek', endpoint: 'https://api.deepseek.com', apiKey: 'saved-key', model: 'explicit-model' };
+    localStorage.setItem('caudalflow-settings', JSON.stringify({ version: 0, state: { llmConfig: real } }));
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().llmConfig).toEqual(real);
+  });
+
   it('persists, edits and deletes prompt presets without duplicating them', () => {
     useSettingsStore.setState({ promptPresets: [] });
     const store = useSettingsStore.getState();
@@ -39,9 +52,9 @@ describe('settingsStore', () => {
     expect(useSettingsStore.getState().promptPresets).toEqual([]);
   });
   describe('updateLLMConfig', () => {
-    it('selects the DeepSeek preset with its URL and model', () => {
+    it('selects a provider endpoint without inventing a default model', () => {
       useSettingsStore.getState().updateLLMConfig({ providerId: 'deepseek' });
-      expect(useSettingsStore.getState().llmConfig).toMatchObject({ providerId: 'deepseek', endpoint: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: '' });
+      expect(useSettingsStore.getState().llmConfig).toMatchObject({ providerId: 'deepseek', endpoint: 'https://api.deepseek.com', model: '', apiKey: '' });
     });
     it('clears the old endpoint and key when choosing a custom API', () => {
       useSettingsStore.getState().updateLLMConfig({ providerId: 'openai', apiKey: 'old-key' });
@@ -60,22 +73,22 @@ describe('settingsStore', () => {
       useSettingsStore.getState().updateLLMConfig({ temperature: 0.9 });
       const config = useSettingsStore.getState().llmConfig;
       expect(config.temperature).toBe(0.9);
-      expect(config.providerId).toBe('mock'); // unchanged
-      expect(config.model).toBe('gpt-4o-mini'); // unchanged
+      expect(config.providerId).toBe(''); // unchanged
+      expect(config.model).toBe(''); // unchanged
     });
 
     it('sets OpenAI defaults when switching to openai provider', () => {
       useSettingsStore.getState().updateLLMConfig({ providerId: 'openai' });
       const config = useSettingsStore.getState().llmConfig;
       expect(config.providerId).toBe('openai');
-      expect(config.model).toBe('gpt-4o-mini');
+      expect(config.model).toBe('');
     });
 
     it('sets Anthropic defaults when switching to anthropic provider', () => {
       useSettingsStore.getState().updateLLMConfig({ providerId: 'anthropic' });
       const config = useSettingsStore.getState().llmConfig;
       expect(config.providerId).toBe('anthropic');
-      expect(config.model).toBe('claude-sonnet-4-5-20250929');
+      expect(config.model).toBe('');
     });
 
     it('does not override model when staying on the same provider', () => {

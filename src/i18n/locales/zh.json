@@ -98,10 +98,10 @@
   },
   "welcome": {
     "title": "欢迎使用 CaudalFlow",
-    "mockModeDescription": "您当前处于 <1>模拟模式</1> — 响应是模拟的，因此您可以在没有 API 密钥的情况下探索画布。",
-    "realAiDescription": "打开设置，选择自定义 API（OpenAI 兼容），填写接口地址、API 密钥和模型即可开始对话。",
+    "setupDescription": "请先在模型管理中配置供应商并选择默认模型，然后开始对话。",
+    "realAiDescription": "打开模型管理，填写接口地址和 API 密钥，添加模型并设为默认。",
     "openSettings": "打开设置",
-    "exploreMockMode": "探索模拟模式"
+    "exploreCanvas": "先看看画布"
   },
   "workspace": {
     "defaultName": "工作区",

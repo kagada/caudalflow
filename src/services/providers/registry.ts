@@ -1,5 +1,4 @@
 import type { LLMProvider } from './types';
-import { MockProvider } from './mock';
 import { OpenAIProvider } from './openai';
 import { AnthropicProvider } from './anthropic';
 import { CustomProvider } from './custom';
@@ -12,7 +11,6 @@ function register(provider: LLMProvider) {
   providers.set(provider.id, provider);
 }
 
-register(MockProvider);
 register(OpenAIProvider);
 register(AnthropicProvider);
 register(CustomProvider);

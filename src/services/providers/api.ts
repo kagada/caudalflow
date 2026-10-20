@@ -1,6 +1,5 @@
 import { resolveOpenAIEndpoint } from './endpoints';
-import { thinkingParameters } from './thinking';
-import type { LLMConfig, ModelEffort } from '../../types/chat';
+import type { ModelEffort } from '../../types/chat';
 import { apiFetch } from './transport';
 import { fetchBailianSearchCapabilities, reportedWebSearchSupport } from './bailianSearch';
 
@@ -45,20 +44,17 @@ export async function fetchModels(endpoint: string, apiKey: string): Promise<Mod
   return models.map((model) => model.webSearchSupported === undefined && capabilities.has(model.id) ? { ...model, webSearchSupported: capabilities.get(model.id) } : model);
 }
 
-// 测试真实聊天请求，只有返回有效回复才算成功；限流不能代表配置可用。
-export async function testConnection(endpoint: string, apiKey: string, model?: string, thinkingMode?: LLMConfig['thinkingMode']): Promise<{ success: boolean; message: string }> {
+// 连接测试只验证地址、鉴权和接口格式，不生成回复，也不依赖选择具体模型。
+export async function testConnection(endpoint: string, apiKey: string): Promise<{ success: boolean; message: string }> {
   try {
-    if (!model?.trim()) return { success: false, message: 'Please enter a model ID.' };
-    const response = await apiFetch(resolveOpenAIEndpoint(endpoint, 'chat/completions'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
-      body: JSON.stringify({ model: model.trim(), messages: [{ role: 'user', content: 'Reply with OK.' }], stream: false, ...thinkingParameters(endpoint, thinkingMode) }),
+    const response = await apiFetch(resolveOpenAIEndpoint(endpoint, 'models'), {
+      headers: authHeaders(apiKey),
       signal: AbortSignal.timeout(20000),
     });
     if (!response.ok) throw await responseError(response);
     const data = await response.json();
-    if (typeof data.choices?.[0]?.message?.content !== 'string') {
-      return { success: false, message: 'The API did not return an OpenAI-compatible chat response.' };
+    if (!Array.isArray(data) && !Array.isArray(data?.data)) {
+      return { success: false, message: '接口没有返回有效的模型目录。' };
     }
     return { success: true, message: 'Connection successful' };
   } catch (error) {

@@ -82,7 +82,6 @@ export interface LLMConfig {
   model: string;
   temperature: number;
   maxTokens: number;
-  mockDelay: number;
   thinkingMode?: 'auto' | 'enabled' | 'disabled';
   thinkingEffort?: string;
   webSearch?: boolean;

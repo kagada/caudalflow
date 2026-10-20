@@ -28,6 +28,22 @@ async function input(label: string, value: string) {
   });
 }
 
+it('tests the endpoint immediately after entering a key without fetching or selecting models', async () => {
+  useModelStore.getState().updateProvider('deepseek', { apiKey: '' });
+  vi.mocked(testConnection).mockResolvedValue({ success: true, message: 'ok' });
+  await act(async () => root.render(<ModelManagement />));
+  const button = () => [...document.querySelectorAll('button')].find((element) => element.textContent === '测试连接')!;
+  expect(button().disabled).toBe(true);
+  await input('供应商 API 密钥', 'new-key');
+  expect(button().disabled).toBe(false);
+  expect(document.querySelector('[aria-label="测试模型 ID"]')).toBeNull();
+  await click('测试连接');
+  expect(testConnection).toHaveBeenCalledWith('https://example.test', 'new-key');
+  expect(fetchModels).not.toHaveBeenCalled();
+  expect(useModelStore.getState().providers[0].models).toEqual([]);
+  expect(document.querySelector('[role="status"]')?.textContent).toContain('接口可访问');
+});
+
 it('saves the search switch per conversation and disables it for unsupported models', async () => {
   useModelStore.setState({ providers: [{ id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', apiKey: 'secret', enabled: true, models: [{ id: 'deepseek-flash', name: 'Flash', enabled: true }] }], defaultModel: { providerId: 'deepseek', providerName: 'DeepSeek', modelId: 'deepseek-flash' } });
   useFlowStore.setState({ nodes: [{ id: 'search', type: 'chat', position: { x: 0, y: 0 }, data: { topic: '搜索' } }] });
@@ -122,7 +138,7 @@ it('can remove old unwanted entries from a filtered list without retaining hidde
   expect(useModelStore.getState().providers[0].models.map((model) => model.id)).toEqual(['two']);
 });
 
-it('offers manual entry when synchronization fails, tests the chosen ID, and selects it for a conversation', async () => {
+it('offers manual entry when synchronization fails and selects the model for a conversation', async () => {
   vi.mocked(fetchModels).mockRejectedValue(new Error('HTTP 404'));
   vi.mocked(testConnection).mockResolvedValue({ success: true, message: 'ok' });
   await act(async () => root.render(<ModelManagement />));
@@ -136,7 +152,7 @@ it('offers manual entry when synchronization fails, tests the chosen ID, and sel
   await click('自定模型');
   expect(document.querySelector<HTMLInputElement>('[aria-label="新模型 ID"]')!.value).toBe('');
   await input('新模型 ID', 'manual-id'); await input('新模型名称', 'Manual Model'); await click('添加并启用');
-  await click('测试连接'); expect(testConnection).toHaveBeenCalledWith('https://example.test', 'secret', 'manual-id');
+  await click('测试连接'); expect(testConnection).toHaveBeenCalledWith('https://example.test', 'secret');
   useFlowStore.setState({ nodes: [{ id: 'a', type: 'chat', position: { x: 0, y: 0 }, data: { topic: 'A' } }] });
   await act(async () => root.render(<ConversationModelPicker nodeId="a" disabled={false} />));
   await click('会话模型设置'); await click('Manual Model');

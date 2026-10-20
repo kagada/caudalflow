@@ -6,7 +6,7 @@ import { supportsWebSearch } from '../webSearch';
 import type { LLMConfig } from '../../../types/chat';
 
 const endpoint = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-const config: LLMConfig = { providerId: 'bailian', providerName: '百炼', endpoint, apiKey: 'test-key', model: 'new-model-without-local-rules', temperature: 0.7, maxTokens: 2048, mockDelay: 0 };
+const config: LLMConfig = { providerId: 'bailian', providerName: '百炼', endpoint, apiKey: 'test-key', model: 'new-model-without-local-rules', temperature: 0.7, maxTokens: 2048, };
 const answer = () => new Response('data:{"choices":[{"delta":{"content":"回答"},"finish_reason":"stop"}]}\ndata:[DONE]\n');
 afterEach(() => vi.unstubAllGlobals());
 
