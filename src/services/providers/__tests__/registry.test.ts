@@ -6,12 +6,7 @@ describe('provider registry', () => {
     it('registers Bailian as a separate provider', () => {
       expect(getProvider('bailian')).toMatchObject({ id: 'bailian', name: '阿里云百炼' });
     });
-    it('returns the mock provider', () => {
-      const provider = getProvider('mock');
-      expect(provider).toBeDefined();
-      expect(provider!.id).toBe('mock');
-      expect(provider!.name).toBeTruthy();
-    });
+    it('does not register the removed simulated provider', () => { expect(getProvider('mock')).toBeUndefined(); });
 
     it('returns the openai provider', () => {
       const provider = getProvider('openai');
@@ -37,9 +32,9 @@ describe('provider registry', () => {
       expect(providers.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('includes mock, openai, and anthropic', () => {
+    it('includes real providers without simulated responses', () => {
       const ids = listProviders().map((p) => p.id);
-      expect(ids).toContain('mock');
+      expect(ids).not.toContain('mock');
       expect(ids).toContain('openai');
       expect(ids).toContain('anthropic');
     });

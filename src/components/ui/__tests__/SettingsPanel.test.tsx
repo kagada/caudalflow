@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPanel } from '../SettingsPanel';
 import { useSettingsStore } from '../../../stores/settingsStore';
-import { fetchModels } from '../../../services/providers/api';
 import { DEFAULT_BUILTIN_PROMPTS } from '../../../services/builtinPrompts';
 
 vi.hoisted(() => {
@@ -18,7 +17,7 @@ let root: Root;
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
-  useSettingsStore.setState({ showSettings: true, settingsSection: 'general', llmConfig: { providerId: 'mock', providerName: 'Mock', endpoint: '', apiKey: '', model: '', temperature: 0.7, maxTokens: 2048, mockDelay: 30 } });
+  useSettingsStore.setState({ showSettings: true, settingsSection: 'general', llmConfig: { providerId: 'mock', providerName: 'Mock', endpoint: '', apiKey: '', model: '', temperature: 0.7, maxTokens: 2048, } });
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -53,42 +52,13 @@ describe('API settings form', () => {
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === '恢复默认')!.click());
     expect(useSettingsStore.getState().builtinPrompts.referenceSummary).toBe(DEFAULT_BUILTIN_PROMPTS.referenceSummary);
   });
-  it('offers a DeepSeek preset with editable URL and thinking mode', async () => {
-    await change('#llm-provider', 'deepseek');
-    expect(document.querySelector<HTMLInputElement>('#api-endpoint')!.value).toBe('https://api.deepseek.com');
-    expect(document.querySelector<HTMLInputElement>('#api-model')!.value).toBe('deepseek-flash');
-    expect(document.querySelector('#thinking-mode')).not.toBeNull();
-  });
-  it('lets the user configure and persist an API from the provider selector', async () => {
-    await change('#llm-provider', 'custom');
-    await change('#api-endpoint', 'http://localhost:1234/v1');
-    await change('#api-key', 'test-key');
-    await change('#api-model', 'my-model');
-    expect(useSettingsStore.getState().llmConfig).toMatchObject({ providerId: 'custom', endpoint: 'http://localhost:1234/v1', apiKey: 'test-key', model: 'my-model' });
-    expect(JSON.parse(localStorage.getItem('caudalflow-settings')!).state.llmConfig.model).toBe('my-model');
-    expect(document.querySelector<HTMLInputElement>('#api-key')!.type).toBe('password');
+  it('exposes generation settings without legacy providers, mock delays or preset model names', async () => {
+    expect(document.querySelector('#llm-provider')).toBeNull();
+    expect(document.querySelector('#api-model')).toBeNull();
+    expect(document.body.textContent).not.toContain('gpt-4o-mini');
+    expect(document.body.textContent).not.toContain('旧版模型');
+    await change('[aria-label="最大输出令牌数"]', '4096');
+    expect(useSettingsStore.getState().llmConfig.maxTokens).toBe(4096);
   });
 
-  it('keeps model entry editable after fetching suggestions without an API key', async () => {
-    vi.mocked(fetchModels).mockResolvedValue([{ id: 'suggested', name: 'Suggested' }]);
-    await change('#llm-provider', 'custom');
-    await change('#api-endpoint', 'http://localhost:1234/v1');
-    const button = [...document.querySelectorAll('button')].find((element) => element.textContent?.includes('Fetch Models'))!;
-    expect(button.disabled).toBe(false);
-    await act(async () => button.click());
-    expect(document.querySelector('datalist option')?.getAttribute('value')).toBe('suggested');
-    await change('#api-model', 'unlisted-model');
-    expect(useSettingsStore.getState().llmConfig.model).toBe('unlisted-model');
-  });
-
-  it('shows model-list failures and keeps manual model entry available', async () => {
-    vi.mocked(fetchModels).mockRejectedValue(new Error('HTTP 401'));
-    await change('#llm-provider', 'custom');
-    await change('#api-endpoint', 'https://example.com/v1');
-    const button = [...document.querySelectorAll('button')].find((element) => element.textContent?.includes('Fetch Models'))!;
-    await act(async () => button.click());
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('HTTP 401');
-    await change('#api-model', 'manual-model');
-    expect(useSettingsStore.getState().llmConfig.model).toBe('manual-model');
-  });
 });

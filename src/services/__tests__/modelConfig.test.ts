@@ -59,10 +59,20 @@ it('restores a migrated selection by provider and model ID using this computer�
   expect(() => resolveModelConfig('a')).toThrow('未设置模型');
 });
 
-it('keeps the legacy default available until a managed default is selected', () => {
+it('requires a configured default and never falls back to a legacy model', () => {
   useModelStore.getState().setDefaultModel(null);
-  expect(resolveModelConfig('b')).toEqual(useSettingsStore.getState().llmConfig);
+  expect(() => resolveModelConfig('b')).toThrow('未设置模型');
+  const error = vi.fn();
+  streamChat([], { onToken: vi.fn(), onDone: vi.fn(), onError: error }, new AbortController().signal, { nodeId: 'b' });
+  expect(error).toHaveBeenCalledTimes(1);
+  expect(provider.streamChat).not.toHaveBeenCalled();
   expect(resolveModelConfig('a').model).toBe('two');
+});
+
+it('does not register the former simulated provider', async () => {
+  const actual = await vi.importActual<typeof import('../providers/registry')>('../providers/registry');
+  expect(actual.getProvider('mock')).toBeUndefined();
+  expect(actual.listProviders().some((provider) => provider.id === 'mock')).toBe(false);
 });
 
 it('honors disabled providers for both the managed default and the legacy default', () => {
@@ -75,7 +85,7 @@ it('honors disabled providers for both the managed default and the legacy defaul
     useModelStore.getState().setDefaultModel(null);
     expect(() => resolveModelConfig('b')).toThrow('未设置模型');
     useModelStore.getState().updateProvider('deepseek', { enabled: true });
-    expect(resolveModelConfig('b').model).toBe('one');
+    expect(() => resolveModelConfig('b')).toThrow('未设置模型');
   } finally { useSettingsStore.setState({ llmConfig: original }); }
 });
 

@@ -23,9 +23,9 @@ describe('custom API configuration', () => {
     expect(body.reasoning_effort).toBeUndefined();
     expect(callbacks.onToken).toHaveBeenCalledWith('百炼回答');
     expect(callbacks.onError).not.toHaveBeenCalled();
-    request.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: 'OK' } }] }));
-    expect((await testConnection(config.endpoint, config.apiKey, config.model)).success).toBe(true);
-    expect(JSON.parse(request.mock.calls[1][1].body).enable_thinking).toBe(false);
+    request.mockResolvedValueOnce(Response.json({ data: [] }));
+    expect((await testConnection(config.endpoint, config.apiKey)).success).toBe(true);
+    expect(request.mock.calls[1][0]).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1/models');
     await BailianProvider.streamChat([], { ...config, thinkingMode: 'enabled', thinkingEffort: 'vendor-effort' }, callbacks, new AbortController().signal);
     const selectedBody = JSON.parse(request.mock.calls[2][1].body);
     expect(selectedBody.reasoning_effort).toBe('vendor-effort');
@@ -84,25 +84,25 @@ describe('custom API configuration', () => {
     await expect(fetchModels('https://example.com/v1', 'bad')).rejects.toThrow('HTTP 401: Invalid key');
   });
 
-  it('tests the chosen model without requiring model discovery or authentication', async () => {
-    const request = vi.fn().mockResolvedValue(Response.json({ choices: [{ message: { content: 'OK' } }] }));
+  it('tests connectivity without a model name, authentication or any generation request', async () => {
+    const request = vi.fn().mockResolvedValue(Response.json({ data: [] }));
     vi.stubGlobal('fetch', request);
-    expect((await testConnection('http://localhost:1234/v1/', '', 'local-model')).success).toBe(true);
+    expect((await testConnection('http://localhost:1234/v1/', '')).success).toBe(true);
     expect(request).toHaveBeenCalledTimes(1);
     const [url, options] = request.mock.calls[0];
-    expect(url).toBe('http://localhost:1234/v1/chat/completions');
+    expect(url).toBe('http://localhost:1234/v1/models');
     expect(options.headers).not.toHaveProperty('Authorization');
-    expect(JSON.parse(options.body).model).toBe('local-model');
+    expect(options.body).toBeUndefined();
   });
 
   it('does not report a rate-limited API as successfully configured', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { message: 'Quota exceeded' } }, { status: 429 })));
-    expect(await testConnection('https://example.com', 'key', 'model')).toEqual({ success: false, message: 'HTTP 429: Quota exceeded' });
+    expect(await testConnection('https://example.com', 'key')).toEqual({ success: false, message: 'HTTP 429: Quota exceeded' });
   });
 
   it('rejects an HTML page returned with a successful HTTP status', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>Wrong endpoint</html>')));
-    expect((await testConnection('https://example.com', 'key', 'model')).success).toBe(false);
+    expect((await testConnection('https://example.com', 'key')).success).toBe(false);
   });
 
   it.each([CustomProvider, OpenAIProvider])('streams directly from the configured URL using $id', async (provider) => {
@@ -117,7 +117,7 @@ describe('custom API configuration', () => {
     });
     const request = vi.fn().mockResolvedValue(new Response(stream));
     vi.stubGlobal('fetch', request);
-    const config: LLMConfig = { providerId: provider.id, providerName: 'Test', endpoint: 'https://example.com/gateway/v2/', apiKey: 'test-key', model: 'custom-model', temperature: 0.7, maxTokens: 2048, mockDelay: 30 };
+    const config: LLMConfig = { providerId: provider.id, providerName: 'Test', endpoint: 'https://example.com/gateway/v2/', apiKey: 'test-key', model: 'custom-model', temperature: 0.7, maxTokens: 2048, };
     const callbacks = { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
     await provider.streamChat([{ id: '1', role: 'user', content: '你好', timestamp: 0 }], config, callbacks, new AbortController().signal);
     expect(request).toHaveBeenCalledWith('https://example.com/gateway/v2/chat/completions', expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-key' }) }));

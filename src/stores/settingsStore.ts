@@ -61,14 +61,13 @@ export const useSettingsStore = create<SettingsState>()(
       savePromptPreset: (preset) => set({ promptPresets: get().promptPresets.some((item) => item.id === preset.id) ? get().promptPresets.map((item) => item.id === preset.id ? preset : item) : [...get().promptPresets, preset] }),
       deletePromptPreset: (id) => set({ promptPresets: get().promptPresets.filter((item) => item.id !== id) }),
       llmConfig: {
-        providerId: 'mock',
-        providerName: 'Mock',
-        endpoint: 'https://api.openai.com/v1/chat/completions',
+        providerId: '',
+        providerName: '',
+        endpoint: '',
         apiKey: '',
-        model: 'gpt-4o-mini',
+        model: '',
         temperature: 0.7,
         maxTokens: 2048,
-        mockDelay: 30,
       },
       showMinimap: true,
       showSystemPrompts: false,
@@ -84,18 +83,15 @@ export const useSettingsStore = create<SettingsState>()(
 
         // 切换服务商时清掉旧密钥，避免把它误发到新的接口；显式传入的配置优先。
         if (config.providerId && config.providerId !== current.providerId) {
-          const defaults: Record<string, { model: string; endpoint?: string }> = {
-            openai: { model: 'gpt-4o-mini', endpoint: 'https://api.openai.com/v1/chat/completions' },
-            anthropic: { model: 'claude-sonnet-4-5-20250929', endpoint: 'https://api.anthropic.com/v1/messages' },
-            custom: { model: '', endpoint: '' },
-            deepseek: { model: 'deepseek-flash', endpoint: 'https://api.deepseek.com' },
-            bailian: { model: '', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+          const endpoints: Record<string, string> = {
+            openai: 'https://api.openai.com/v1/chat/completions',
+            anthropic: 'https://api.anthropic.com/v1/messages',
+            custom: '',
+            deepseek: 'https://api.deepseek.com',
+            bailian: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
           };
-          const d = defaults[config.providerId];
-          if (d) {
-            merged.model = config.model ?? d.model;
-            merged.endpoint = config.endpoint ?? d.endpoint ?? '';
-          }
+          merged.model = config.model ?? '';
+          merged.endpoint = config.endpoint ?? endpoints[config.providerId] ?? '';
           merged.apiKey = config.apiKey ?? '';
           merged.providerName = config.providerName ?? config.providerId;
         }
@@ -141,6 +137,17 @@ export const useSettingsStore = create<SettingsState>()(
         theme: state.theme,
         selectMode: state.selectMode,
       }),
+      // 清理已经落盘的模拟服务和延迟参数，升级后也不再出现假默认模型。
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<SettingsState> | undefined;
+        const raw = saved?.llmConfig as (LLMConfig & { mockDelay?: number }) | undefined;
+        const config = { ...current.llmConfig, ...raw };
+        delete (config as LLMConfig & { mockDelay?: number }).mockDelay;
+        if (config.providerId === 'mock') {
+          config.providerId = ''; config.providerName = ''; config.model = ''; config.endpoint = ''; config.apiKey = '';
+        }
+        return { ...current, ...saved, llmConfig: config };
+      },
       onRehydrateStorage: () => (state) => {
         // Apply theme on app load
         if (state?.theme) {

@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Settings2 } from 'lucide-react';
 import { useModelStore } from '../../stores/modelStore';
 import { useFlowStore } from '../../stores/flowStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import { openModelSettings } from '../../services/modelSettings';
 import { resolveModelConfig } from '../../services/modelConfig';
 import { thinkingEffortLabel, thinkingEffortOptions } from '../../services/modelThinking';
@@ -17,22 +16,21 @@ export function ConversationModelPicker({ nodeId, disabled }: { nodeId: string; 
   const override = useFlowStore((state) => state.nodes.find((node) => node.id === nodeId)?.data.thinkingEffort);
   useFlowStore((state) => state.nodes.find((node) => node.id === nodeId)?.data.webSearch);
   const { providers, defaultModel } = useModelStore();
-  const legacy = useSettingsStore((state) => state.llmConfig);
   const current = selection ?? defaultModel;
   // 括号始终说明默认模型，不能因会话另选了模型而改成当前会话的名称。
-  const defaultModelName = defaultModel ? providers.find((provider) => provider.id === defaultModel.providerId)?.models.find((model) => model.id === defaultModel.modelId)?.name ?? defaultModel.modelId : legacy.model || legacy.providerName;
+  const defaultModelName = defaultModel ? providers.find((provider) => provider.id === defaultModel.providerId)?.models.find((model) => model.id === defaultModel.modelId)?.name ?? defaultModel.modelId : '未设置默认模型';
   // 显示与发送使用同一可用性判断；保留原选择供重新启用后恢复，但不能显示为可用模型。
   let available = true;
   let resolved;
   try { resolved = resolveModelConfig(nodeId); } catch { available = false; }
-  const effective = current ?? { providerId: legacy.providerId, modelId: legacy.model };
+  const effective = current ?? { providerId: '', modelId: '' };
   const model = providers.find((provider) => provider.id === effective.providerId)?.models.find((item) => item.id === effective.modelId);
   const options = thinkingEffortOptions(model);
   // 会话统一保留一个“默认”入口，避免与模型配置里的默认选项重复。
   const sessionOptions = options.filter((option) => option !== 'auto');
   const effort = resolved?.thinkingMode === 'disabled' || !resolved?.thinkingMode ? 'none' : resolved.thinkingEffort ?? 'auto';
   // 按实际模型显示名称；是否跟随默认只在菜单中表示，不混入模型名。
-  const name = current ? providers.find((provider) => provider.id === current.providerId)?.models.find((model) => model.id === current.modelId)?.name ?? current.modelId : legacy.model || legacy.providerName;
+  const name = current ? providers.find((provider) => provider.id === current.providerId)?.models.find((model) => model.id === current.modelId)?.name ?? current.modelId : '未设置模型';
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);

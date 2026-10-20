@@ -1,5 +1,6 @@
 /// <reference types="node" />
 /** @vitest-environment jsdom */
+import { useModelStore } from '../../stores/modelStore';
 import { webcrypto } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatStore } from '../../stores/chatStore';
@@ -15,6 +16,7 @@ vi.mock('../storage/desktop', () => ({ isDesktopStorage: () => false }));
 vi.mock('../storage/runtime', () => ({ flushDesktopStorage: vi.fn() }));
 let serial = 0;
 beforeEach(() => {
+  useModelStore.setState({ providers: [{ id: 'test', name: 'Test', endpoint: 'https://example.test', apiKey: 'test-key', enabled: true, models: [{ id: 'test', name: 'Test', enabled: true }] }], defaultModel: { providerId: 'test', providerName: 'Test', modelId: 'test' } });
   vi.clearAllMocks(); vi.stubGlobal('crypto', webcrypto); serial++;
   provider.prompt = undefined;
   provider.streamChat.mockImplementation((_messages, _config, callbacks) => { callbacks.onToken('完整知识背景摘要'); callbacks.onDone(); });

@@ -1,3 +1,4 @@
+import { useModelStore } from '../../../stores/modelStore';
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -12,7 +13,9 @@ import { useFlowStore } from '../../../stores/flowStore';
 vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
 
 let container: HTMLDivElement; let root: Root;
-beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); container = document.createElement('div'); document.body.append(container); root = createRoot(container); useChatStore.setState({ conversations: {} }); useFlowStore.setState({ nodes: [] }); });
+beforeEach(() => {
+  useModelStore.setState({ providers: [{ id: 'test', name: 'Test', endpoint: 'https://example.test', apiKey: 'test-key', enabled: true, models: [{ id: 'test', name: 'Test', enabled: true }] }], defaultModel: { providerId: 'test', providerName: 'Test', modelId: 'test' } });
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); container = document.createElement('div'); document.body.append(container); root = createRoot(container); useChatStore.setState({ conversations: {} }); useFlowStore.setState({ nodes: [] }); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 const paste = async () => {
   const event = new Event('paste', { bubbles: true, cancelable: true });

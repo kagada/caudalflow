@@ -1,16 +1,17 @@
 import { useEffect, useCallback } from 'react';
-import { useTranslation, Trans } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { Settings, Sparkles } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useModelStore } from '../../stores/modelStore';
 
 export function WelcomePopup() {
   const { t } = useTranslation();
-  const providerId = useSettingsStore((s) => s.llmConfig.providerId);
+  const defaultModel = useModelStore((s) => s.defaultModel);
   const welcomeDismissed = useSettingsStore((s) => s.welcomeDismissed);
   const dismissWelcome = useSettingsStore((s) => s.dismissWelcome);
   const setShowSettings = useSettingsStore((s) => s.setShowSettings);
 
-  const visible = providerId === 'mock' && !welcomeDismissed;
+  const visible = !defaultModel && !welcomeDismissed;
 
   const handleDismiss = useCallback(() => {
     dismissWelcome();
@@ -18,6 +19,7 @@ export function WelcomePopup() {
 
   const handleOpenSettings = useCallback(() => {
     dismissWelcome();
+    useSettingsStore.setState({ settingsSection: 'models' });
     setShowSettings(true);
   }, [dismissWelcome, setShowSettings]);
 
@@ -49,9 +51,7 @@ export function WelcomePopup() {
         </div>
 
         <p className="text-sm text-text-secondary mb-2">
-          <Trans i18nKey="welcome.mockModeDescription">
-            You're currently in <span className="text-accent-300 font-medium">mock mode</span> — responses are simulated so you can explore the canvas without an API key.
-          </Trans>
+          {t('welcome.setupDescription')}
         </p>
 
         <p className="text-sm text-text-secondary mb-4">
@@ -70,7 +70,7 @@ export function WelcomePopup() {
             className="flex-1 text-sm font-medium rounded-md px-3 py-2 text-text-secondary hover:text-text-primary bg-surface-700/50 hover:bg-surface-700 border border-surface-600 transition-colors"
             onClick={handleDismiss}
           >
-            {t('welcome.exploreMockMode')}
+            {t('welcome.exploreCanvas')}
           </button>
         </div>
       </div>

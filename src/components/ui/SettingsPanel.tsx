@@ -1,15 +1,9 @@
 import { ModelManagement } from './ModelManagement';
 import { useTranslation } from 'react-i18next';
-import { X, Sun, Moon, Monitor, Eye, EyeOff, RefreshCw, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { useState, useCallback, useRef } from 'react';
+import { X, Sun, Moon, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { BuiltinPromptSettings } from './BuiltinPromptSettings';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { listProviders } from '../../services/providers/registry';
-import { fetchModels, testConnection } from '../../services/providers/api';
-import type { LLMConfig } from '../../types/chat';
-import { isDeepSeekEndpoint } from '../../services/providers/thinking';
-import { isDesktopRuntime } from '../../services/providers/transport';
 
 export function SettingsPanel() {
   const { t } = useTranslation();
@@ -23,62 +17,10 @@ export function SettingsPanel() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
-  const providers = listProviders();
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionResult, setConnectionResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [models, setModels] = useState<{ id: string; name: string }[]>([]);
-  const [modelsError, setModelsError] = useState<string | null>(null);
-  const requestVersion = useRef(0);
-  const isOpenAICompatible = ['custom', 'openai', 'deepseek', 'bailian'].includes(config.providerId);
   // 页签跟随共享状态，让模型配置入口可以切换已经打开的设置面板。
   const tab = useSettingsStore((s) => s.settingsSection);
   const setTab = (settingsSection: string) => useSettingsStore.setState({ settingsSection });
   const close = () => setShowSettings(false);
-
-  // 更改接口后旧请求的结果不能写回，避免显示其他服务商的模型或连接状态。
-  const handleConfigChange = (changes: Partial<LLMConfig>) => {
-    requestVersion.current += 1;
-    setConnectionResult(null);
-    setModelsError(null);
-    if ('endpoint' in changes || 'apiKey' in changes || 'providerId' in changes) setModels([]);
-    updateConfig(changes);
-  };
-
-  const handleFetchModels = useCallback(async () => {
-    if (!config.endpoint.trim()) return;
-    const version = requestVersion.current;
-    setLoadingModels(true);
-    setModelsError(null);
-    try {
-      const fetchedModels = await fetchModels(config.endpoint, config.apiKey);
-      if (version === requestVersion.current) {
-        setModels(fetchedModels);
-        if (!fetchedModels.length) setModelsError(t('settings.noModels'));
-      }
-    } catch (error) {
-      if (version === requestVersion.current) {
-        setModels([]);
-        setModelsError(`${t('settings.modelsFailed')} ${error instanceof Error ? error.message : ''}`);
-      }
-    } finally {
-      setLoadingModels(false);
-    }
-  }, [config.endpoint, config.apiKey, t]);
-
-  const handleTestConnection = useCallback(async () => {
-    if (!config.endpoint.trim() || !config.model.trim()) return;
-    const version = requestVersion.current;
-    setTestingConnection(true);
-    setConnectionResult(null);
-    try {
-      const result = await testConnection(config.endpoint, config.apiKey, config.model, config.thinkingMode);
-      if (version === requestVersion.current) setConnectionResult(result);
-    } finally {
-      setTestingConnection(false);
-    }
-  }, [config.endpoint, config.apiKey, config.model, config.thinkingMode]);
 
   if (!showSettings) return null;
 
@@ -130,198 +72,16 @@ export function SettingsPanel() {
           </div>
         </div>
 
-        <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm">旧版模型配置与生成参数</summary><p className="my-3 text-xs text-text-muted">新模型请前往“模型管理”配置并设为默认；未设新默认时，继续使用这里的旧版配置。生成参数对所有模型生效。</p>
-        {/* LLM Provider Section */}
-        <div>
-          <label htmlFor="llm-provider" className={labelClass}>{t('settings.llmProvider')}</label>
-          <select
-            id="llm-provider"
-            value={config.providerId}
-            onChange={(e) => handleConfigChange({ providerId: e.target.value })}
-            className={inputClass}
-          >
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id === 'custom' ? t('settings.customProvider') : p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Provider Name - Editable for custom */}
-        {config.providerId === 'custom' && (
-          <div>
-            <label className={labelClass}>{t('settings.providerName')}</label>
-            <input
-              type="text"
-              value={config.providerName}
-              onChange={(e) => updateConfig({ providerName: e.target.value })}
-              className={inputClass}
-              placeholder="My Custom Provider"
-            />
+        <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm">生成参数</summary>
+          <div className="mt-3 space-y-3">
+            <label className={labelClass}>{t('settings.temperature')}
+              <input aria-label="温度" type="range" min="0" max="2" step="0.1" value={config.temperature} onChange={(event) => updateConfig({ temperature: Number(event.target.value) })} className="mt-2 w-full accent-accent-500" />
+              <span className="block text-right text-text-muted">{config.temperature}</span>
+            </label>
+            <label className={labelClass}>{t('settings.maxTokens')}
+              <input aria-label="最大输出令牌数" type="number" value={config.maxTokens} onChange={(event) => updateConfig({ maxTokens: parseInt(event.target.value) || 2048 })} className={inputClass} />
+            </label>
           </div>
-        )}
-
-        {/* API Key Input - Show for all providers except mock */}
-        {config.providerId !== 'mock' && (
-          <div>
-            <label htmlFor="api-key" className={labelClass}>{t('settings.apiKey')}</label>
-            <div className="relative">
-              <input
-                id="api-key"
-                type={showApiKey ? 'text' : 'password'}
-                value={config.apiKey}
-                onChange={(e) => handleConfigChange({ apiKey: e.target.value })}
-                className={inputClass}
-                placeholder={t('settings.apiKeyPlaceholder')}
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-              >
-                {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-            <p className="text-[10px] text-text-muted mt-1">
-              {t(config.providerId === 'anthropic' ? 'settings.proxyDescription' : isDesktopRuntime() ? 'settings.desktopApiKeyDescription' : 'settings.apiKeyDescription')}
-            </p>
-          </div>
-        )}
-
-        {/* OpenAI 与兼容接口都使用可编辑地址，适合只启动本地界面的用法。 */}
-        {isOpenAICompatible && (
-          <div>
-            <label htmlFor="api-endpoint" className={labelClass}>{t('settings.endpoint')}</label>
-            <input
-              id="api-endpoint"
-              type="text"
-              value={config.endpoint}
-              onChange={(e) => handleConfigChange({ endpoint: e.target.value })}
-              className={inputClass}
-              placeholder="https://api.example.com/v1"
-            />
-            <p className="text-[10px] text-text-muted mt-1">
-              {t('settings.endpointDescription')}
-            </p>
-
-            {/* Test Connection & Fetch Models */}
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={handleTestConnection}
-                disabled={!config.endpoint.trim() || !config.model.trim() || testingConnection}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-700 hover:bg-surface-600 rounded-md transition-colors disabled:opacity-50"
-              >
-                {testingConnection ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : connectionResult?.success ? (
-                  <CheckCircle size={12} className="text-green-400" />
-                ) : connectionResult?.success === false ? (
-                  <XCircle size={12} className="text-red-400" />
-                ) : null}
-                {t('settings.testConnection')}
-              </button>
-              <button
-                onClick={handleFetchModels}
-                disabled={!config.endpoint.trim() || loadingModels}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface-700 hover:bg-surface-600 rounded-md transition-colors disabled:opacity-50"
-              >
-                {loadingModels ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                {t('settings.fetchModels')}
-              </button>
-            </div>
-
-            {connectionResult && (
-              <p className={`text-[10px] mt-1 ${connectionResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                {connectionResult.success ? t('settings.connectionSuccess') : connectionResult.message}
-              </p>
-            )}
-            {modelsError && <p role="alert" className="text-[10px] mt-1 text-red-400">{modelsError}</p>}
-            <p className="text-[10px] text-text-muted mt-1">{t(isDesktopRuntime() ? 'settings.desktopConnectionHint' : 'settings.connectionHint')}</p>
-          </div>
-        )}
-
-        {/* Model Config - Show for non-mock providers */}
-        {config.providerId !== 'mock' && (
-          <>
-            <div>
-              <label htmlFor="api-model" className={labelClass}>{t('settings.model')}</label>
-                <input
-                  id="api-model"
-                  type="text"
-                  list="api-models"
-                  value={config.model}
-                  onChange={(e) => handleConfigChange({ model: e.target.value })}
-                  className={inputClass}
-                  placeholder={config.providerId === 'openai' ? 'gpt-4o-mini' : config.providerId === 'anthropic' ? 'claude-sonnet-4-20250514' : 'model-id'}
-                />
-              <datalist id="api-models">
-                {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </datalist>
-              <p className="text-[10px] text-text-muted mt-1">{t('settings.modelDescription')}</p>
-            </div>
-            <div>
-              <label className={labelClass}>{t('settings.temperature')}</label>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="0.1"
-                value={config.temperature}
-                onChange={(e) =>
-                  updateConfig({ temperature: parseFloat(e.target.value) })
-                }
-                className="w-full accent-accent-500"
-              />
-              <div className="text-xs text-text-muted text-right">
-                {config.temperature}
-              </div>
-            </div>
-            {isOpenAICompatible && isDeepSeekEndpoint(config.endpoint) && (
-              <div>
-                <label htmlFor="thinking-mode" className={labelClass}>{t('settings.thinkingMode')}</label>
-                <select id="thinking-mode" value={config.thinkingMode ?? 'disabled'} onChange={(e) => handleConfigChange({ thinkingMode: e.target.value as LLMConfig['thinkingMode'] })} className={inputClass}>
-                  <option value="disabled">{t('settings.thinkingDisabled')}</option>
-                  <option value="enabled">{t('settings.thinkingEnabled')}</option>
-                  <option value="auto">{t('settings.thinkingAuto')}</option>
-                </select>
-                <p className="text-[10px] text-text-muted mt-1">{t('settings.thinkingDescription')}</p>
-              </div>
-            )}
-            <div>
-              <label className={labelClass}>{t('settings.maxTokens')}</label>
-              <input
-                type="number"
-                value={config.maxTokens}
-                onChange={(e) =>
-                  updateConfig({ maxTokens: parseInt(e.target.value) || 2048 })
-                }
-                className={inputClass}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Mock Provider Config */}
-        {config.providerId === 'mock' && (
-          <div>
-            <label className={labelClass}>{t('settings.tokenDelay')}</label>
-            <input
-              type="number"
-              value={config.mockDelay}
-              onChange={(e) =>
-                updateConfig({ mockDelay: parseInt(e.target.value) || 30 })
-              }
-              className={inputClass}
-              min="5"
-              max="500"
-            />
-            <p className="text-xs text-text-muted mt-1">
-              {t('settings.tokenDelayDescription')}
-            </p>
-          </div>
-        )}
-
         </details>
         {/* Display Settings */}
         <div className="border-t border-border pt-4">

@@ -4,7 +4,7 @@ import { supportsWebSearch } from '../webSearch';
 import type { LLMConfig } from '../../../types/chat';
 import { readOpenAIStream } from '../openaiStream';
 
-const config: LLMConfig = { providerId: 'deepseek', providerName: 'DeepSeek', endpoint: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: 'test', temperature: 0.7, maxTokens: 2048, mockDelay: 0, webSearch: true };
+const config: LLMConfig = { providerId: 'deepseek', providerName: 'DeepSeek', endpoint: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: 'test', temperature: 0.7, maxTokens: 2048, webSearch: true };
 const signal = () => new AbortController().signal;
 const cb = () => ({ onToken: vi.fn(), onReasoning: vi.fn(), onDone: vi.fn(), onError: vi.fn(), onUsage: vi.fn() });
 const stream = (delta: object, finish_reason = 'stop') => new Response(`data:${JSON.stringify({ choices: [{ delta, finish_reason }], usage: { prompt_tokens: 10, completion_tokens: 2 } })}\ndata:[DONE]\n`);
