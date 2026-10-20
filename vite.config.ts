@@ -17,6 +17,8 @@ export default defineConfig({
     },
   },
   test: {
+    // 独立验证工具使用自己的测试命令，正式项目只收集自己的测试。
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'electron/**/*.{test,spec}.ts'],
     globals: true,
     environment: 'node',
   },

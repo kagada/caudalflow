@@ -6,8 +6,9 @@ import { useFlowStore } from '../../stores/flowStore';
 import { useChatStore } from '../../stores/chatStore';
 import { exportWorkspace, importWorkspace } from '../../hooks/usePersistence';
 import { exportMarkdown } from '../../utils/markdownExport';
-import { isDesktopStorage } from '../../services/storage/desktop';
-import { createDesktopWorkspace, deleteDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace } from '../../services/storage/runtime';
+import { isSqliteStorage } from '../../services/storage/client';
+import { createDesktopWorkspace, deleteDesktopWorkspace, openDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace } from '../../services/storage/runtime';
+import { isAndroid } from '../../services/platform';
 import { StorageControls } from './StorageControls';
 
 export function WorkspaceSelector() {
@@ -67,7 +68,7 @@ export function WorkspaceSelector() {
     const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === id);
     const trimmed = (inputRef.current?.value ?? editValue).trim();
     if (workspace && trimmed && trimmed !== workspace.name) {
-      if (isDesktopStorage()) void renameDesktopWorkspace(id, trimmed);
+      if (isSqliteStorage()) void renameDesktopWorkspace(id, trimmed);
       else renameWorkspace(id, trimmed);
     }
     setEditing(false);
@@ -105,7 +106,7 @@ export function WorkspaceSelector() {
   const handleSwitch = useCallback(
     (id: string) => {
       if (id !== activeWorkspaceId) {
-        if (isDesktopStorage()) void switchDesktopWorkspace(id);
+        if (isSqliteStorage()) void switchDesktopWorkspace(id);
         else switchWorkspace(id);
       }
       setDropdownOpen(false);
@@ -114,7 +115,7 @@ export function WorkspaceSelector() {
   );
 
   const handleNew = useCallback(() => {
-    if (isDesktopStorage()) void createDesktopWorkspace();
+    if (isSqliteStorage()) void createDesktopWorkspace();
     else createWorkspace();
     setDropdownOpen(false);
   }, [createWorkspace]);
@@ -122,7 +123,7 @@ export function WorkspaceSelector() {
   const handleDelete = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      if (isDesktopStorage()) {
+      if (isSqliteStorage()) {
         if (window.confirm('删除工作区会永久删除工作区文件和此设备上的本地历史，无法撤销。确定删除吗？')) void deleteDesktopWorkspace(id);
       } else deleteWorkspace(id);
     },
@@ -135,7 +136,7 @@ export function WorkspaceSelector() {
       setDropdownOpen(false);
       // 等切换确实完成后再编辑，避免固定延时误把名称保存到另一个工作区。
       if (id !== activeWorkspaceId) {
-        if (isDesktopStorage()) await switchDesktopWorkspace(id);
+        if (isSqliteStorage()) await switchDesktopWorkspace(id);
         else switchWorkspace(id);
       }
       if (useWorkspaceStore.getState().activeWorkspaceId === id) beginEditing(id);
@@ -143,7 +144,10 @@ export function WorkspaceSelector() {
     [activeWorkspaceId, switchWorkspace, beginEditing]
   );
 
-  const handleImport = useCallback(() => fileRef.current?.click(), []);
+  const handleImport = useCallback(() => {
+    if (isSqliteStorage()) void openDesktopWorkspace();
+    else fileRef.current?.click();
+  }, []);
 
   const handleExportMarkdown = useCallback(() => {
     const flow = useFlowStore.getState();
@@ -173,9 +177,9 @@ export function WorkspaceSelector() {
   );
 
   return (
-    <div className="h-9 bg-surface-950 border-b border-border flex items-center px-3 shrink-0 select-none">
+    <div className={`${isAndroid() ? 'min-h-16 flex-wrap gap-y-1 py-1' : 'h-9'} bg-surface-950 border-b border-border flex items-center px-3 shrink-0 select-none`}>
       {/* Left: workspace name + dropdown */}
-      <div className="relative" ref={dropdownRef}>
+      <div className={isAndroid() ? 'relative w-full min-w-0' : 'relative'} ref={dropdownRef}>
         {editing ? (
           <input
             ref={inputRef}
@@ -191,12 +195,13 @@ export function WorkspaceSelector() {
               onClick={() => setDropdownOpen((o) => !o)}
               className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              <span className="max-w-48 truncate" title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
-              <ChevronDown size={14} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+              <span className={`${isAndroid() ? 'max-w-36' : 'max-w-48'} truncate`} title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
+              {isAndroid() && <span className="whitespace-nowrap text-[10px] text-text-muted">内部副本 · 修改后请导出</span>}
+              <ChevronDown size={14} className={`shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
             <button
               onClick={startEditing}
-              className="opacity-0 group-hover/name:opacity-100 p-0.5 text-text-muted hover:text-text-primary transition-all"
+              className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover/name:opacity-100'} p-0.5 text-text-muted hover:text-text-primary transition-all`}
               title={t('workspace.renameWorkspace')}
             >
               <Pencil size={12} />
@@ -219,14 +224,14 @@ export function WorkspaceSelector() {
                   <span className="truncate flex-1 text-left">{ws.name}</span>
                   <button
                     onClick={(e) => handleRenameFromDropdown(e, ws.id)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-text-muted hover:text-text-primary transition-all"
+                    className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-0.5 text-text-muted hover:text-text-primary transition-all`}
                     title={t('workspace.renameWorkspace')}
                   >
                     <Pencil size={14} />
                   </button>
                   <button
                     onClick={(e) => handleDelete(e, ws.id)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-text-muted hover:text-red-400 transition-all"
+                    className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-0.5 text-text-muted hover:text-red-400 transition-all`}
                     title={t('workspace.deleteWorkspace')}
                   >
                     <Trash2 size={14} />
@@ -248,11 +253,11 @@ export function WorkspaceSelector() {
       </div>
 
       {/* Spacer */}
-      <div className="flex-1" />
+      <div className={isAndroid() ? 'hidden' : 'flex-1'} />
 
       {/* Right: export + import + github */}
       <div className="flex items-center gap-1">
-        {isDesktopStorage() && <StorageControls />}
+        {isSqliteStorage() && <StorageControls />}
         <button
           onClick={handleExportMarkdown}
           className="p-1.5 text-text-muted hover:text-text-primary transition-colors"

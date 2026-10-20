@@ -3,7 +3,7 @@ import { useFlowStore } from '../../stores/flowStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import type { WorkspaceData, WorkspaceMetadata } from '../../types/workspace';
-import { desktopStorage as storage } from './desktop';
+import { sqliteStorage as storage } from './client';
 import { contentKey, copyWorkspace, nodeContent } from './snapshot';
 import { createContentHistory, describeContentChange } from './commands';
 import type { HistoryDetail, HistoryEntry, HistorySelection, SavedWorkspace, StoredWorkspace } from './types';
@@ -13,6 +13,7 @@ import type { ReferenceSource } from '../../types/chat';
 import { cancelAllGenerations } from '../streamLifecycle';
 import { hasPersistedFlowChanges } from '../../utils/flowPersistence';
 import { mergeUsage } from '../../utils/tokenUsage';
+import { isAndroid } from '../platform';
 
 interface StorageStatus {
   ready: boolean;
@@ -177,6 +178,8 @@ function activate(workspace: StoredWorkspace, metadata?: WorkspaceMetadata) {
   const entry = { ...workspace.metadata, ...metadata };
   const workspaces = [...store.workspaces.filter((item) => item.id !== entry.id), entry];
   useWorkspaceStore.setState({ workspaces, activeWorkspaceId: entry.id });
+  // 安卓最近工作区与正文一起走原生存储队列，避免依赖 WebView 延迟刷新的 localStorage。
+  if (isAndroid()) void storage.request('activate', { id: entry.id }).catch(report);
   updateButtons();
 }
 
@@ -199,6 +202,24 @@ function observeStores() {
     try { await finishGenerations(); }
     catch (error) { useStorageStatus.setState({ busy: false }); throw error; }
   };
+  // 安卓进后台前尽快提交已收到的正文；不把进后台误当成完整关闭或停止生成。
+  if (isAndroid()) void installAndroidLifecycle();
+}
+
+let androidLifecycleInstalled = false;
+async function installAndroidLifecycle() {
+  if (androidLifecycleInstalled) return;
+  androidLifecycleInstalled = true;
+  try {
+    const { App } = await import('@capacitor/app');
+    await App.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) void flushDesktopStorage().catch(report);
+    });
+    await App.addListener('backButton', () => {
+      // 避免系统返回直接销毁尚未保存的页面；返回桌面前排空保存队列。
+      void finishGenerations().then(() => App.minimizeApp()).catch(report);
+    });
+  } catch (error) { androidLifecycleInstalled = false; report(error); }
 }
 
 // 只迁移工作区字符串，保留旧 localStorage；设置和密钥不进入工作区文件。
@@ -212,8 +233,9 @@ export function initializeDesktopStorage(): Promise<void> {
         const raw = localStorage.getItem(`caudalflow-workspace-${metadata.id}`);
         return raw ? { metadata, raw } : null;
       }).filter(Boolean);
-      const result = await storage.request<{ workspaces: WorkspaceMetadata[] }>('bootstrap', { legacy, registryRaw });
-      const id = result.workspaces.find((item) => item.id === registry?.activeWorkspaceId && !item.unavailable)?.id ?? result.workspaces.find((item) => !item.unavailable)?.id;
+      const result = await storage.request<{ workspaces: WorkspaceMetadata[]; activeWorkspaceId?: string }>('bootstrap', { legacy, registryRaw });
+      const lastId = result.activeWorkspaceId ?? registry?.activeWorkspaceId;
+      const id = result.workspaces.find((item) => item.id === lastId && !item.unavailable)?.id ?? result.workspaces.find((item) => !item.unavailable)?.id;
       if (!id) throw new Error('没有可打开的工作区，请恢复文件到原位置后重试');
       useWorkspaceStore.setState({ workspaces: result.workspaces });
       const workspace = await storage.load(id);
@@ -304,6 +326,11 @@ export async function openReferenceSourceWorkspace(source: ReferenceSource): Pro
 
 export async function createDesktopWorkspace(name = '新工作区', data?: WorkspaceData) {
   return perform(async () => {
+    if (isAndroid() && !data) {
+      const entered = window.prompt('新建工作区：请输入名称', name);
+      if (!entered?.trim()) return;
+      name = entered.trim();
+    }
     await finishGenerations();
     const workspace = await storage.request<StoredWorkspace | null>('create', { name, ...(data ? { data } : {}) });
     if (workspace) activate(workspace);
@@ -345,7 +372,10 @@ export async function renameDesktopWorkspace(id: string, name: string) {
 }
 
 export async function exportDesktopWorkspace() {
-  return perform(async () => { if (activeId) await storage.request('export', { id: activeId, name: useWorkspaceStore.getState().getActiveWorkspace()?.name }); });
+  return perform(async () => {
+    await finishGenerations();
+    if (activeId) await storage.request('export', { id: activeId, name: useWorkspaceStore.getState().getActiveWorkspace()?.name });
+  });
 }
 
 // 暂停生成后把部分结果作为完整一步，再执行撤销；回放不触发新的 AI 请求。

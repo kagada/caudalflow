@@ -1,7 +1,7 @@
 import { useChatStore } from '../stores/chatStore';
 import { useFlowStore } from '../stores/flowStore';
 import { generateTitle } from './llm';
-import { isDesktopStorage } from './storage/desktop';
+import { isSqliteStorage } from './storage/client';
 import { recordFirstQuestion } from './storage/runtime';
 
 // 所有提问入口共用首次命名与保存边界，标题请求不阻塞正文回答。
@@ -19,7 +19,7 @@ export function prepareFirstQuestion(nodeId: string, context: string): void {
   const titleContent = question.content || messages.find((message) => message.reference)?.reference?.quote || '';
   const temporary = titleContent.replace(/\s+/g, ' ').trim().slice(0, 24) || '图片提问';
   if (canName) useFlowStore.getState().updateNodeData(nodeId, { topic: temporary, titleSource: 'temporary' });
-  if (isDesktopStorage()) recordFirstQuestion(nodeId);
+  if (isSqliteStorage()) recordFirstQuestion(nodeId);
   if (!canName) return;
 
   queueMicrotask(() => {

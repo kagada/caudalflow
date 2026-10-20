@@ -11,7 +11,7 @@ import { conversationSystemPrompt } from '../conversationContext';
 const provider = vi.hoisted(() => ({ streamChat: vi.fn(), prompt: undefined as string | undefined }));
 vi.mock('../providers/registry', () => ({ getProvider: () => provider }));
 vi.mock('../../stores/settingsStore', () => ({ useSettingsStore: { getState: () => ({ builtinPrompts: { referenceSummary: provider.prompt }, llmConfig: { providerId: 'test', model: 'test', endpoint: 'local' } }) } }));
-vi.mock('../storage/desktop', () => ({ isDesktopStorage: () => false }));
+vi.mock('../storage/client', () => ({ isSqliteStorage: () => false }));
 vi.mock('../storage/runtime', () => ({ flushDesktopStorage: vi.fn() }));
 let serial = 0;
 beforeEach(() => {

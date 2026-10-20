@@ -3,7 +3,7 @@ import { useChatStore } from '../stores/chatStore';
 import { streamChat } from './llm';
 import { conversationSystemPrompt } from './conversationContext';
 import type { ChatMessage } from '../types/chat';
-import { isDesktopStorage } from './storage/desktop';
+import { isSqliteStorage } from './storage/client';
 
 // 只重新生成目标回复，保留旧版本和后续消息，流式内容按消息 ID 更新。
 export function reviseMessage(nodeId: string, messageId: string, prompt: string | undefined, signal: AbortSignal): void {
@@ -18,7 +18,7 @@ export function reviseMessage(nodeId: string, messageId: string, prompt: string 
   const target: ChatMessage = { ...(original ?? { id: nanoid(), role: 'assistant', timestamp: Date.now() }), content: '', reasoning: undefined, generationStatus: undefined,
     replyToId: source.role === 'user' ? source.id : original?.replyToId,
     // 桌面版本由 SQLite 管理，运行时不再把所有旧正文嵌进当前消息。
-    previousVersions: isDesktopStorage() ? undefined : original ? [...(original.previousVersions ?? []), { content: original.content, reasoning: original.reasoning, timestamp: original.timestamp }] : [] };
+    previousVersions: isSqliteStorage() ? undefined : original ? [...(original.previousVersions ?? []), { content: original.content, reasoning: original.reasoning, timestamp: original.timestamp }] : [] };
   const history = messages.slice(0, source.role === 'assistant' ? index : index + 1);
   const context: ChatMessage[] = [{ id: 'system', role: 'system', content: conversationSystemPrompt(nodeId), timestamp: 0 }, ...history];
   if (prompt) context.push({ id: nanoid(), role: 'user', content: `请按以下要求重构这条回答：${prompt}\n\n原回答：\n${source.content}`, timestamp: Date.now() });

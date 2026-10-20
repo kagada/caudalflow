@@ -8,7 +8,7 @@ import { recordFirstQuestion } from '../storage/runtime';
 
 vi.mock('../llm', () => ({ generateTitle: vi.fn() }));
 vi.mock('../storage/runtime', () => ({ recordFirstQuestion: vi.fn() }));
-vi.mock('../storage/desktop', () => ({ isDesktopStorage: () => true }));
+vi.mock('../storage/client', () => ({ isSqliteStorage: () => true }));
 
 beforeEach(() => {
   vi.clearAllMocks();

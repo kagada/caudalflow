@@ -8,7 +8,7 @@ import { WorkspaceSelector } from '../WorkspaceSelector';
 
 vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
 const fake = vi.hoisted(() => ({ rename: vi.fn(), switch: vi.fn() }));
-vi.mock('../../../services/storage/desktop', () => ({ isDesktopStorage: () => true }));
+vi.mock('../../../services/storage/client', () => ({ isSqliteStorage: () => true }));
 vi.mock('../../../services/storage/runtime', () => ({ renameDesktopWorkspace: fake.rename, switchDesktopWorkspace: fake.switch,
   createDesktopWorkspace: vi.fn(), deleteDesktopWorkspace: vi.fn(), initializeDesktopStorage: vi.fn(), exportDesktopWorkspace: vi.fn() }));
 vi.mock('../StorageControls', () => ({ StorageControls: () => null }));

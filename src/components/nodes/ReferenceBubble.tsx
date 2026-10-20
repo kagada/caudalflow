@@ -4,7 +4,7 @@ import type { ChatMessage, ReferenceSource } from '../../types/chat';
 import { useChatStore } from '../../stores/chatStore';
 import { useFlowStore } from '../../stores/flowStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { isDesktopStorage } from '../../services/storage/desktop';
+import { isSqliteStorage } from '../../services/storage/client';
 import { openReferenceSourceWorkspace } from '../../services/storage/runtime';
 import { locateReferenceMessage } from '../../services/referenceNavigation';
 import { effectiveReferenceSources } from '../../utils/referenceHighlights';
@@ -24,7 +24,7 @@ export function ReferenceBubble({ message }: { message: ChatMessage }) {
   const sources = effectiveReferenceSources(reference);
   const locate = async (source: ReferenceSource) => {
     if (useWorkspaceStore.getState().activeWorkspaceId !== source.workspaceId) {
-      if (!isDesktopStorage() || !await openReferenceSourceWorkspace(source)) { setSnapshot(source); return; }
+      if (!isSqliteStorage() || !await openReferenceSourceWorkspace(source)) { setSnapshot(source); return; }
     }
     const flow = useFlowStore.getState();
     const node = flow.nodes.find((item) => item.id === source.conversationId);

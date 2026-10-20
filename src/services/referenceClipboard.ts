@@ -1,5 +1,6 @@
 import type { ContentReference } from '../types/chat';
-import { isDesktopStorage } from './storage/desktop';
+import { isSqliteStorage } from './storage/client';
+import { isAndroid } from './platform';
 
 const ATTRIBUTE = 'data-caudalflow-reference';
 const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -12,7 +13,9 @@ export function referenceClipboardFormats(reference: ContentReference) {
 
 export async function copyReference(reference: ContentReference): Promise<void> {
   const formats = referenceClipboardFormats(reference);
-  if (isDesktopStorage()) {
+  if (isAndroid()) {
+    await (await import('./storage/androidBridge')).WorkspaceFiles.writeClipboard(formats);
+  } else if (isSqliteStorage()) {
     const response = await fetch('/api/clipboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formats) });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error?.message ?? '未能确认引用写入剪切板，请重试');

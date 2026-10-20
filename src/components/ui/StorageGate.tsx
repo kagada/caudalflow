@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { isDesktopStorage } from '../../services/storage/desktop';
+import { isSqliteStorage } from '../../services/storage/client';
 import { recoverDesktopWorkspace, retryDesktopStorage, useStorageStatus } from '../../services/storage/runtime';
 
 // 打开失败时保留错误与原文件，不把空界面误当成成功打开的新工作区。
 export function StorageGate() {
   const { ready, busy, error } = useStorageStatus();
-  if (!isDesktopStorage() || (ready && !busy && !error)) return null;
+  if (!isSqliteStorage() || (ready && !busy && !error)) return null;
   return <StorageOverlay key={ready && !error ? 'busy' : 'immediate'} ready={ready} error={error} delayed={ready && !error} />;
 }
 

@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import type { WorkspaceData, WorkspaceFile } from '../types/workspace';
 import { hasPersistedFlowChanges } from '../utils/flowPersistence';
 import { calculateAutoLayoutPositions } from '../utils/nodeLayout';
-import { isDesktopStorage } from '../services/storage/desktop';
+import { isSqliteStorage } from '../services/storage/client';
 import { createDesktopWorkspace, exportDesktopWorkspace, initializeDesktopStorage } from '../services/storage/runtime';
 
 const DEBOUNCE_MS = 1000;
@@ -107,7 +107,7 @@ function loadFromStorage(workspaceId: string) {
 // Standalone functions — safe to call from any component without duplicating hook effects
 
 export function exportWorkspace() {
-  if (isDesktopStorage()) { void exportDesktopWorkspace(); return; }
+  if (isSqliteStorage()) { void exportDesktopWorkspace(); return; }
   const workspace = useWorkspaceStore.getState().getActiveWorkspace();
   if (!workspace) return;
 
@@ -165,7 +165,7 @@ export function importWorkspace(file: File) {
       }
 
       // Always create a new workspace (no overwrite risk)
-      if (isDesktopStorage()) { void createDesktopWorkspace(name, { ...data, nodes: sanitizeNodes(data.nodes, data.edges ?? []) }); return; }
+      if (isSqliteStorage()) { void createDesktopWorkspace(name, { ...data, nodes: sanitizeNodes(data.nodes, data.edges ?? []) }); return; }
       const wsStore = useWorkspaceStore.getState();
 
       // Flush-save current workspace first
@@ -253,9 +253,9 @@ function useLegacyPersistence(enabled: boolean) {
   }, [debouncedSave, enabled]);
 }
 
-// 桌面切到 SQLite，浏览器仍保持旧行为，不在此次重构中提前实现第二套数据库。
+// 桌面与安卓共用 SQLite 持久化协调；普通网页继续沿用原有存储。
 export function usePersistence() {
-  const desktop = isDesktopStorage();
+  const desktop = isSqliteStorage();
   useLegacyPersistence(!desktop);
   useEffect(() => {
     if (desktop) void initializeDesktopStorage().catch(() => { /* 错误由持久化状态面板展示。 */ });

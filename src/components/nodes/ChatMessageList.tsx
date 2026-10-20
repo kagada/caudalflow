@@ -16,7 +16,7 @@ import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
 import { DocumentVersions } from './DocumentVersions';
 import { UsageStatistics } from './UsageStatistics';
-import { isDesktopStorage } from '../../services/storage/desktop';
+import { isSqliteStorage } from '../../services/storage/client';
 import { buildBacklinks, selectBacklinkInputs } from '../../utils/referenceBacklinks';
 
 interface ChatMessageListProps {
@@ -102,7 +102,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         )}
       </div>
       {versionDocument && <DocumentVersions nodeId={nodeId} documentId={versionDocument} close={() => setVersionDocument(null)} />}
-      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isDesktopStorage() ? setVersionDocument : undefined} copyReference={async () => {
+      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isSqliteStorage() ? setVersionDocument : undefined} copyReference={async () => {
         if (menu.kind === 'message' && menu.message.reference) await copyReference(menu.message.reference);
         else await copyReference(await createReference(nodeId, menu.kind === 'selection' ? menu.sources : [{ documentId: menu.message.id, text: menu.message.content }], { deferSummary: true }));
       }} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {

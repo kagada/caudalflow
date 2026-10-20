@@ -1,5 +1,23 @@
 # Electron 桌面版
 
+## 安卓开发版（2026-10-20）
+
+正式项目已增加 Capacitor 安卓工程，包名为 `com.caudalflow.learning.android`，与独立 SQLite 验证 APK 分开安装。桌面与安卓使用 `shared/storage/` 中同一份数据库业务代码，包括版本、引用附件、个人历史、恢复、用量和流式草稿；平台分别提供 Node 和安卓 SQLite 驱动。
+
+安卓工作区保存在应用内部。新建时输入名字；文件夹与导入按钮通过系统文件选择器复制 SQLite 工作区，随后编辑内部副本，原文件不会随编辑更新。修改后请使用导出按钮带走完整 `.caudalflow` 文件。导出使用一致的数据库快照，不携带设备上的个人历史。当前支持第 3、4 版 SQLite 文件，单个文件导入导出上限 512 MiB；卸载或清除数据前请先导出。
+
+Windows 仍在用户选择的位置创建、打开工作区，上传按钮现在也打开 SQLite 文件；普通网页版保留原来的 JSON 和 localStorage 路径。
+
+安卓构建需要 Node >=22.13、JDK 21、Android SDK Platform 36。在项目根目录执行 `npm ci`，配置 `android/local.properties` 中本机的 `sdk.dir`，然后在 Windows 执行：
+
+```powershell
+npm run android:build
+```
+
+输出 `android/app/build/outputs/apk/debug/app-debug.apk`。这是开发签名包；原生工程、依赖和共用业务代码可随正式改造提交，`tools/android-sqlite-validation/` 独立验证项目继续只保留本地。
+
+本轮已验证桌面回归及安卓数据库接入，不代表完成所有移动端验收。模型联网仍走 WebView 的直接请求，尚未逐家验证服务商的跨域和流式行为；引用复制已接原生 HTML 剪贴板，系统粘贴、触屏、软键盘、后台生成及 Markdown 导出仍需进一步验收。
+
 ## 使用
 
 Windows x64 打包文件在 `release/`：
