@@ -54,7 +54,13 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
     // 直接读取浏览器选区，不受悬浮分支按钮的状态或文字长度限制。
     if (text && selected?.rangeCount && selected.getRangeAt(0).intersectsNode(containerRef.current!)) {
       event.preventDefault(); event.stopPropagation(); setPopupOpen(false); clearSelection();
-      setMenu({ kind: 'selection', text, sources: selectionDocuments(containerRef.current!, selected.getRangeAt(0)), x: event.clientX, y: event.clientY });
+      const range = selected.getRangeAt(0);
+      // 两个端点必须在同一条消息中，不能按右键位置猜测跨回答选区的操作对象。
+      const start = (range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement)?.closest('[data-message-id]');
+      const end = (range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement)?.closest('[data-message-id]');
+      const message = start && start === end && containerRef.current!.contains(start)
+        ? allMessages.find((item) => item.id === start.getAttribute('data-message-id')) : undefined;
+      setMenu({ kind: 'selection', text, message, sources: selectionDocuments(containerRef.current!, range), x: event.clientX, y: event.clientY });
       return;
     }
     const id = (event.target as HTMLElement).closest('[data-message-id]')?.getAttribute('data-message-id');
@@ -69,7 +75,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
   }, [clearSelection]);
 
   const handleExplore = (selectedText: string, prompt: string) => {
-    const sources = menu?.kind === 'selection' ? menu.sources : selection?.sources;
+    const sources = menu ? menu.kind === 'selection' ? menu.sources : [{ documentId: menu.message.id, text: menu.message.content }] : selection?.sources;
     dismiss();
     onExplore(selectedText, prompt, sources);
   };

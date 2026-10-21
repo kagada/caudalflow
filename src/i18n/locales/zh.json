@@ -1,5 +1,9 @@
 {
   "menu": {
+    "multipleAnswersUnavailable": "（选中多个回答时不可用）",
+    "branchMessage": "从这条消息分支追问",
+    "summarizeMessage": "总结这条消息（新分支）",
+    "askPromptMessage": "用 prompt 追问这条消息",
     "managePrompts": "管理 prompt",
     "managerEmpty": "还没有预设，点击“新增 prompt”添加。",
     "promptPresets": "预设 prompt",
