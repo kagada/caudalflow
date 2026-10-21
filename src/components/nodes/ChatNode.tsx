@@ -12,6 +12,7 @@ import type { ChatNode } from '../../types/flow';
 import { useChatStore } from '../../stores/chatStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useFlowStore } from '../../stores/flowStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useNodeCopilotChat } from '../../hooks/useNodeCopilotChat';
 import { calculateBranchPosition } from '../../utils/nodeLayout';
 import { ChatNodeHeader } from './ChatNodeHeader';
@@ -34,6 +35,7 @@ const PALETTE_COLORS = [
 export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, selected }: NodeProps<ChatNode>) {
   const { t } = useTranslation();
   const { topic, collapsed, minimized, maximized, done, parentNodeId, branchText, parentNodeIds, mergeAction, color, label } = data;
+  const openCompactCardsMaximized = useSettingsStore(state => state.openCompactCardsMaximized);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [panelPoint, setPanelPoint] = useState<PanelPoint | undefined>();
   const [isPanning, setIsPanning] = useState(false);
@@ -117,18 +119,6 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
     useChatStore.getState().initConversation(id);
   }, [id]);
 
-  const handleToggleCollapse = useCallback(() => {
-    const flowStore = useFlowStore.getState();
-    flowStore.updateNodeData(id, { collapsed: !collapsed, maximized: false });
-    
-    // Force React Flow to re-measure after DOM update
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        updateNodeInternals(id);
-      });
-    });
-  }, [id, collapsed, updateNodeInternals]);
-
   const handleMinimize = useCallback(() => {
     const flowStore = useFlowStore.getState();
     const node = flowStore.nodes.find((n) => n.id === id);
@@ -151,22 +141,8 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
   }, [id]);
 
   const handleRestore = useCallback(() => {
-    const flowStore = useFlowStore.getState();
-    const node = flowStore.nodes.find((n) => n.id === id);
-    if (!node) return;
-    flowStore.setNodes(
-      flowStore.nodes.map((n) =>
-        n.id === id
-          ? {
-              ...n,
-              data: { ...n.data, minimized: false, collapsed: false, maximized: false },
-              // 展开沿用保存的尺寸，左上角保留当前排版位置。
-              position: n.position,
-            }
-          : n,
-      ),
-    );
-  }, [id]);
+    useFlowStore.getState().openCompactCard(id, openCompactCardsMaximized);
+  }, [id, openCompactCardsMaximized]);
 
   // 最大化是独立阅读视图，不改变节点尺寸、位置或画布缩放。
   const handleMaximize = useCallback(() => {
@@ -241,13 +217,13 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       <div className={`relative h-full w-full rounded-xl border bg-surface-900 shadow-lg ${selected ? 'border-accent-500' : 'border-border'}`}
         onPointerDownCapture={() => useFlowStore.getState().activateNode(id)}
         onFocusCapture={() => useFlowStore.getState().activateNode(id)}
-        onDoubleClick={minimized ? handleRestore : handleToggleCollapse}>
+        onDoubleClick={handleRestore}>
         <Handle type="target" position={Position.Left} id="left" className="!bg-accent-500 !border-none !w-2.5 !h-2.5" />
         <Handle type="source" position={Position.Right} id="right" className="!bg-accent-400 !border-none !w-2.5 !h-2.5" />
         <div className="flex items-start gap-2 px-4 pt-3">
           {color && <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
           <div className="min-w-0 flex-1 font-semibold text-[15px] leading-5 line-clamp-2" title={topic}>{topic}</div>
-          <button onClick={minimized ? handleRestore : handleToggleCollapse} title={t('node.expand')} className="nodrag p-1 text-text-secondary"><Maximize2 size={15} /></button>
+          <button onClick={handleRestore} title={t('node.expand')} className="nodrag p-1 text-text-secondary"><Maximize2 size={15} /></button>
           <button onClick={(event) => handleDelete(event.detail ? { x: event.clientX, y: event.clientY } : undefined)} title={t('node.deleteConversation')} className="nodrag p-1 text-text-muted hover:text-red-400"><Trash2 size={15} /></button>
         </div>
         <div className="px-4 pt-2 text-[13px] leading-5 text-text-secondary line-clamp-2">{preview.replace(/[#*`>]/g, '') || t('chat.askQuestionToStart')}</div>

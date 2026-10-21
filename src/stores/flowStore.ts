@@ -15,6 +15,7 @@ interface FlowState {
   activeNodeId: string | null;
   activateNode: (id: string) => void;
   closeActiveCard: () => void;
+  openCompactCard: (id: string, maximized: boolean) => void;
   onNodesChange: OnNodesChange<ChatNode>;
   onEdgesChange: OnEdgesChange<TopicEdge>;
   addChatNode: (position: { x: number; y: number }, data: ChatNodeData) => string;
@@ -41,6 +42,18 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set({ nodes: nodes.map((item) => item.id === activeNodeId ? { ...item, data: {
       ...item.data, minimized: true, collapsed: false, maximized: false,
     } } : item) });
+  },
+
+  // 折叠和关闭产生的小卡片共用打开入口；切换阅读方式不改画布坐标及展开尺寸。
+  openCompactCard: (id, maximized) => {
+    const { nodes } = get();
+    const target = nodes.find(node => node.id === id);
+    if (!target || (!target.data.minimized && !target.data.collapsed)) return;
+    const zIndex = Math.max(0, ...nodes.map(node => node.zIndex ?? 0)) + 1;
+    set({ activeNodeId: id, nodes: nodes.map(node => node.id === id
+      ? { ...node, zIndex, data: { ...node.data, minimized: false, collapsed: false, maximized } }
+      : maximized && node.data.maximized ? { ...node, data: { ...node.data, maximized: false } } : node),
+    });
   },
 
   // 活动对话保持在最上层；不改选中状态，保留 Shift 多选和合并操作。

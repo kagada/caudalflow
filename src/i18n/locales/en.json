@@ -67,6 +67,8 @@
     "tokenDelay": "Token Delay (ms)",
     "tokenDelayDescription": "Simulated delay between tokens for development mode.",
     "display": "Display",
+    "openCompactCardsMaximized": "Open compact cards maximized",
+    "openCompactCardsMaximizedDescription": "Go straight to the large reading view when expanding or double-clicking a compact card.",
     "showSystemPrompts": "Show system prompts",
     "showSystemPromptsDescription": "Show system prompt messages in conversations.",
     "apiKeyConfigured": "API key is configured on the server (apps/agent/.env)."

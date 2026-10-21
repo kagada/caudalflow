@@ -67,6 +67,8 @@
     "tokenDelay": "令牌延迟 (毫秒)",
     "tokenDelayDescription": "开发模式下令牌之间的模拟延迟。",
     "display": "显示",
+    "openCompactCardsMaximized": "打开小卡片时直接最大化",
+    "openCompactCardsMaximizedDescription": "点击展开或双击小卡片时，直接进入大卡片阅读。",
     "showSystemPrompts": "显示系统提示",
     "showSystemPromptsDescription": "在对话中显示系统提示消息。",
     "apiKeyConfigured": "API 密钥已在服务器上配置 (apps/agent/.env)。"
