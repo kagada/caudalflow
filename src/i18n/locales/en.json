@@ -1,5 +1,9 @@
 {
   "menu": {
+    "multipleAnswersUnavailable": "(Unavailable when multiple answers are selected)",
+    "branchMessage": "Branch from this message",
+    "summarizeMessage": "Summarize this message (new branch)",
+    "askPromptMessage": "Ask about this message with prompt",
     "managePrompts": "Manage prompts",
     "managerEmpty": "No presets yet. Click New prompt to add one.",
     "promptPresets": "Prompt presets",

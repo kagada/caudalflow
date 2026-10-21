@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Options } from 'react-markdown';
-import '../../../i18n';
+import i18n from '../../../i18n';
 import { useFlowStore } from '../../../stores/flowStore';
 import { useChatStore } from '../../../stores/chatStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
@@ -51,6 +51,39 @@ describe('canvas selection keeps conversation content cached', () => {
     container.remove();
     markdownRender.mockClear();
     vi.unstubAllGlobals();
+  });
+
+  it('resolves a single-answer selection independently of the right-click position and disables revisions across answers', () => {
+    void i18n.changeLanguage('zh');
+    const revise = vi.fn();
+    act(() => {
+      useChatStore.getState().setConversationMessages('a', [
+        { id: 'm', role: 'assistant', content: '第一条回答', timestamp: 0 },
+        { id: 'n', role: 'assistant', content: '第二条回答', timestamp: 1 },
+      ]);
+      root.render(<ChatMessageList nodeId="a" onExplore={explore} onRevise={revise} />);
+    });
+    const first = container.querySelector('[data-message-id="m"] [data-message-content]')!;
+    const second = container.querySelector('[data-message-id="n"] [data-message-content]')!;
+    const walker = document.createTreeWalker(first, NodeFilter.SHOW_TEXT);
+    const start = walker.nextNode()!;
+    const range = document.createRange();
+    range.setStart(start, 0); range.setEnd(start, 2);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => second.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    const regenerate = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent?.startsWith('重新回答这个问题'));
+    act(() => regenerate()!.click());
+    expect(revise).toHaveBeenCalledWith('m', undefined);
+    const end = document.createTreeWalker(second, NodeFilter.SHOW_TEXT).nextNode()!;
+    range.setEnd(end, 2);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => first.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    expect(regenerate()?.disabled).toBe(true);
+    expect(regenerate()?.textContent).toContain('（选中多个回答时不可用）');
+    act(() => regenerate()!.click());
+    expect(revise).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('用 prompt 重构回答');
+    window.getSelection()!.removeAllRanges();
   });
 
   it('does not parse Markdown on selection, deselection, or an unrelated branch change', () => {
