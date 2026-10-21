@@ -32,6 +32,7 @@ import { useCanvasBoxSelection } from '../../hooks/useCanvasBoxSelection';
 import { useCanvasNodeSelection } from '../../hooks/useCanvasNodeSelection';
 import { deferConversationCommand } from '../../services/storage/runtime';
 import { isAndroid } from '../../services/platform';
+import { useAndroidKeyboardAvoidance } from '../../hooks/useAndroidKeyboardAvoidance';
 
 const nodeTypes: NodeTypes = {
   chat: ChatNodeComponent,
@@ -50,6 +51,7 @@ export function Canvas() {
   const { t } = useTranslation();
   const android = isAndroid();
   const { setCenter, getZoom, setViewport, viewportInitialized } = useReactFlow();
+  const { onMoveStart: keyboardMoveStart, shouldSaveViewport } = useAndroidKeyboardAvoidance();
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   // 只在画布就绪或工作区切换时恢复，不能在每次保存视角后再次触发定位。
   useEffect(() => {
@@ -58,9 +60,10 @@ export function Canvas() {
     }
   }, [workspaceId, viewportInitialized, setViewport]);
   const saveViewport = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+    if (!shouldSaveViewport()) return;
     const store = useWorkspaceStore.getState();
     if (store.activeWorkspaceId) store.saveViewport(store.activeWorkspaceId, viewport);
-  }, []);
+  }, [shouldSaveViewport]);
   const [referenceStatus, setReferenceStatus] = useState('');
   const [referenceBusy, setReferenceBusy] = useState(false);
   useEffect(() => {
@@ -330,6 +333,7 @@ export function Canvas() {
           zoomOnDoubleClick={false}
           fitView={false}
           onMoveEnd={saveViewport}
+          onMoveStart={keyboardMoveStart}
           minZoom={0.1}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}

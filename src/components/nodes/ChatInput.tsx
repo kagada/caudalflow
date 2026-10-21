@@ -106,6 +106,7 @@ export function ChatInput({
 
   return (
     <div
+      data-chat-input={nodeId}
       className={`nowheel nodrag nopan m-3 rounded-3xl border border-border bg-surface-800 p-3 shadow-sm transition ${
         isDragging ? 'bg-surface-700' : ''
       }`}

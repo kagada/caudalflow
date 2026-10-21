@@ -101,6 +101,7 @@
     "@capacitor/android": "8.5.3",
     "@capacitor/app": "8.0.1",
     "@capacitor/core": "8.5.3",
+    "@capacitor/keyboard": "8.0.6",
     "@hono/node-server": "^1.13.6",
     "@tailwindcss/vite": "^4.2.2",
     "@xyflow/react": "^12.10.1",
