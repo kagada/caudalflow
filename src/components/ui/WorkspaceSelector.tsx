@@ -7,10 +7,11 @@ import { useChatStore } from '../../stores/chatStore';
 import { exportWorkspace, importWorkspace } from '../../hooks/usePersistence';
 import { exportMarkdown } from '../../utils/markdownExport';
 import { isSqliteStorage } from '../../services/storage/client';
-import { createDesktopWorkspace, deleteDesktopWorkspace, openDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace } from '../../services/storage/runtime';
+import { createDesktopWorkspace, deleteDesktopWorkspace, openDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace, useStorageStatus } from '../../services/storage/runtime';
 import { isAndroid } from '../../services/platform';
 import { StorageControls } from './StorageControls';
 import { useCancelLayer } from '../../hooks/useCancelLayer';
+import { NewWorkspaceDialog } from './NewWorkspaceDialog';
 
 export function WorkspaceSelector() {
   const { t } = useTranslation();
@@ -24,6 +25,8 @@ export function WorkspaceSelector() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const editingSession = useRef<string | null>(null);
@@ -114,7 +117,8 @@ export function WorkspaceSelector() {
   );
 
   const handleNew = useCallback(() => {
-    if (isSqliteStorage()) void createDesktopWorkspace();
+    if (isAndroid()) setShowNewWorkspace(true);
+    else if (isSqliteStorage()) void createDesktopWorkspace();
     else createWorkspace();
     setDropdownOpen(false);
   }, [createWorkspace]);
@@ -176,7 +180,7 @@ export function WorkspaceSelector() {
   );
 
   return (
-    <div className={`${isAndroid() ? 'min-h-16 flex-wrap gap-y-1 py-1' : 'h-9'} bg-surface-950 border-b border-border flex items-center px-3 shrink-0 select-none`}>
+    <><div className={`${isAndroid() ? 'min-h-16 flex-wrap gap-y-1 py-1' : 'h-9'} bg-surface-950 border-b border-border flex items-center px-3 shrink-0 select-none`}>
       {/* Left: workspace name + dropdown */}
       <div className={isAndroid() ? 'relative w-full min-w-0' : 'relative'} ref={dropdownRef}>
         {editing ? (
@@ -191,11 +195,11 @@ export function WorkspaceSelector() {
         ) : (
           <div className="flex items-center gap-1 group/name">
             <button
+              ref={menuButtonRef}
               onClick={() => setDropdownOpen((o) => !o)}
               className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
               <span className={`${isAndroid() ? 'max-w-36' : 'max-w-48'} truncate`} title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
-              {isAndroid() && <span className="whitespace-nowrap text-[10px] text-text-muted">内部副本 · 修改后请导出</span>}
               <ChevronDown size={14} className={`shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
             <button
@@ -296,5 +300,10 @@ export function WorkspaceSelector() {
         />
       </div>
     </div>
+    {showNewWorkspace && <NewWorkspaceDialog onCreate={async (name) => {
+      const workspace = await createDesktopWorkspace(name);
+      if (!workspace) throw new Error(useStorageStatus.getState().error ?? t('workspace.createFailed'));
+    }} onClose={() => { setShowNewWorkspace(false); menuButtonRef.current?.focus(); }} />}
+    </>
   );
 }

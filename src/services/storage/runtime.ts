@@ -329,14 +329,11 @@ export async function openReferenceSourceWorkspace(source: ReferenceSource): Pro
 
 export async function createDesktopWorkspace(name = '新工作区', data?: WorkspaceData) {
   return perform(async () => {
-    if (isAndroid() && !data) {
-      const entered = window.prompt('新建工作区：请输入名称', name);
-      if (!entered?.trim()) return;
-      name = entered.trim();
-    }
+    // 名称由界面确定，安卓不再通过原生 prompt 打断应用内操作。
     await finishGenerations();
     const workspace = await storage.request<StoredWorkspace | null>('create', { name, ...(data ? { data } : {}) });
     if (workspace) activate(workspace);
+    return workspace;
   });
 }
 

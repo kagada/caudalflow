@@ -26,7 +26,7 @@
     "build:diagnostic": "tsc -b && vite build --sourcemap",
     "desktop:dist:diagnostic": "npm run build:diagnostic && electron-builder --win portable --x64 -c.directories.output=release/diagnostic -c.portable.artifactName=CaudalFlow-${version}-${arch}-diagnostic.${ext}",
     "android:sync": "npm run build && cap sync android",
-    "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug --init-script gradle/repositories.init.gradle",
     "desktop": "npm run build && electron .",
     "desktop:check": "npm run build && electron . --smoke-test",
     "desktop:pack": "npm run build && electron-builder --win --x64 --dir",
