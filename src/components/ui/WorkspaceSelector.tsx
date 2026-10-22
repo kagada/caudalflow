@@ -180,9 +180,10 @@ export function WorkspaceSelector() {
   );
 
   return (
-    <><div className={`${isAndroid() ? 'min-h-16 flex-wrap gap-y-1 py-1' : 'h-9'} bg-surface-950 border-b border-border flex items-center px-3 shrink-0 select-none`}>
+    <><div className="h-9 bg-surface-950 border-b border-border flex items-center gap-2 px-3 shrink-0 select-none">
       {/* Left: workspace name + dropdown */}
-      <div className={isAndroid() ? 'relative w-full min-w-0' : 'relative'} ref={dropdownRef}>
+      {/* 窄屏只压缩名称，工具栏与名称保持同一行并靠右。 */}
+      <div className="relative min-w-0" ref={dropdownRef}>
         {editing ? (
           <input
             ref={inputRef}
@@ -190,21 +191,21 @@ export function WorkspaceSelector() {
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={commitRename}
             onKeyDown={handleKeyDown}
-            className="bg-surface-900 border border-border-hover rounded px-2 py-0.5 text-sm text-text-primary outline-none focus:border-accent-500 w-48"
+            className="bg-surface-900 border border-border-hover rounded px-2 py-0.5 text-sm text-text-primary outline-none focus:border-accent-500 w-48 max-w-full"
           />
         ) : (
           <div className="flex items-center gap-1 group/name">
             <button
               ref={menuButtonRef}
               onClick={() => setDropdownOpen((o) => !o)}
-              className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+              className="flex min-w-0 items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
               <span className={`${isAndroid() ? 'max-w-36' : 'max-w-48'} truncate`} title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
               <ChevronDown size={14} className={`shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
             <button
               onClick={startEditing}
-              className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover/name:opacity-100'} p-0.5 text-text-muted hover:text-text-primary transition-all`}
+              className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover/name:opacity-100'} shrink-0 p-0.5 text-text-muted hover:text-text-primary transition-all`}
               title={t('workspace.renameWorkspace')}
             >
               <Pencil size={12} />
@@ -256,10 +257,10 @@ export function WorkspaceSelector() {
       </div>
 
       {/* Spacer */}
-      <div className={isAndroid() ? 'hidden' : 'flex-1'} />
+      <div className="flex-1" />
 
       {/* Right: export + import + github */}
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {isSqliteStorage() && <StorageControls />}
         <button
           onClick={handleExportMarkdown}
