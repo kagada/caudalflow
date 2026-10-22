@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ChatMessage, ReferenceSelection } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useCancelLayer } from '../../hooks/useCancelLayer';
+import { isAndroid } from '../../services/platform';
 
 export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[] } & ({ kind: 'selection'; text: string; message?: ChatMessage } | { kind: 'message'; message: ChatMessage });
 
@@ -31,6 +32,12 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
   const presets = useSettingsStore((state) => state.promptPresets);
   const ref = useRef<HTMLDivElement>(null);
   useCancelLayer(true, close, 10000);
+  useLayoutEffect(() => {
+    if (dialog || !ref.current) return;
+    // 菜单项数量会变化，按实际高度限制位置，避免用固定高度把底部操作挤出屏幕。
+    const menu = ref.current;
+    menu.style.top = `${Math.max(8, Math.min(target.y, window.innerHeight - menu.getBoundingClientRect().height - 8))}px`;
+  });
   useEffect(() => {
     const outside = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) close(); };
     document.addEventListener('pointerdown', outside);
@@ -49,7 +56,7 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
     perform(() => dialog === 'rewrite' && message ? revise(message.id, prompt.trim()) : explore(text, prompt.trim()));
   };
   return createPortal(
-    <div data-message-menu ref={ref} tabIndex={-1} className={`fixed z-[10000] outline-none text-text-primary ${dialog ? 'inset-0 flex items-center justify-center bg-black/40 p-5' : 'w-64 rounded-xl border border-border bg-surface-900 p-2 shadow-2xl'}`}
+    <div data-message-menu ref={ref} tabIndex={-1} className={`fixed z-[10000] outline-none text-text-primary ${isAndroid() && !dialog ? 'select-none' : ''} ${dialog ? 'inset-0 flex items-center justify-center bg-black/40 p-5' : 'w-64 rounded-xl border border-border bg-surface-900 p-2 shadow-2xl'}`}
       onKeyDown={(event) => {
         if (dialog || !['ArrowDown', 'ArrowUp'].includes(event.key)) return;
         event.preventDefault();

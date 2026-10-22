@@ -191,7 +191,7 @@ export const ChatMessage = memo(function ChatMessage({
       <div className="px-3 py-1.5">
         <div className="text-[11px] leading-relaxed text-text-muted bg-surface-800 border border-border rounded-lg px-3 py-2 italic">
           <span className="text-text-secondary font-medium not-italic text-[10px] uppercase tracking-wider">System</span>
-          <div className="mt-1 whitespace-pre-wrap">{message.content}</div>
+          <div className="mt-1 whitespace-pre-wrap select-text">{message.content}</div>
         </div>
       </div>
     );
@@ -220,7 +220,7 @@ export const ChatMessage = memo(function ChatMessage({
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
-        <div data-message-content>
+        <div data-message-content className="select-text">
         {isUser ? (
             <div className="flex flex-col gap-2">
               {message?.images?.map((img, i) => {

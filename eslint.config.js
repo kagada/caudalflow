@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'release', 'android', 'tools/android-sqlite-validation']),
+  globalIgnores(['dist', 'release', 'android', 'tools/android-sqlite-validation', 'tools/android-selection-validation']),
   {
     files: ['electron/**/*.cjs'],
     extends: [js.configs.recommended],

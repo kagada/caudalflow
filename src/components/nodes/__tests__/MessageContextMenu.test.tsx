@@ -36,6 +36,14 @@ it('runs the selected preset with the original selection snapshot', async () => 
 });
 afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.unstubAllGlobals(); });
 
+it('keeps the full menu inside the viewport using its measured height', async () => {
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 500 } as DOMRect);
+  try {
+    await act(async () => root.render(<MessageContextMenu target={{ kind: 'selection', text: '选区', x: 50, y: 700 }} busy={false} close={vi.fn()} explore={vi.fn()} revise={vi.fn()} remove={vi.fn()} />));
+    expect(document.querySelector<HTMLElement>('[data-message-menu]')!.style.top).toBe(`${window.innerHeight - 500 - 8}px`);
+  } finally { bounds.mockRestore(); }
+});
+
 it('disables revision actions with an explanation for text spanning multiple bubbles', async () => {
   await act(async () => root.render(<MessageContextMenu target={{ kind: 'selection', text: '问题\n回答'.repeat(100), x: 50, y: 50 }} busy={false} close={vi.fn()} explore={vi.fn()} revise={vi.fn()} remove={vi.fn()} />));
   expect(document.body.textContent).toContain('从选区分支追问');

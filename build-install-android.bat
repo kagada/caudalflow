@@ -21,6 +21,15 @@ if exist "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" set "ADB=%LOCALAPPD
 if defined ANDROID_HOME if exist "%ANDROID_HOME%\platform-tools\adb.exe" set "ADB=%ANDROID_HOME%\platform-tools\adb.exe"
 if defined ANDROID_SDK_ROOT if exist "%ANDROID_SDK_ROOT%\platform-tools\adb.exe" set "ADB=%ANDROID_SDK_ROOT%\platform-tools\adb.exe"
 
+rem 安装模式先确认设备可用，避免编译结束后才发现无法安装；仅构建模式仍可离线使用。
+if defined BUILD_ONLY goto build
+echo 检查 ADB 设备...
+"%ADB%" devices
+if errorlevel 1 goto device_failed
+"%ADB%" %DEVICE_ARGS% get-state
+if errorlevel 1 goto device_failed
+
+:build
 echo [1/3] 构建安卓 APK...
 call npm.cmd run android:build
 if errorlevel 1 goto build_failed

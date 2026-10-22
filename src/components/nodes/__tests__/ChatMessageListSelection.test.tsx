@@ -11,7 +11,8 @@ import { ChatMessageList } from '../ChatMessageList';
 import { useWorkspaceStore } from '../../../stores/workspaceStore';
 import type { ChatMessage as Message } from '../../../types/chat';
 
-const { markdownRender } = vi.hoisted(() => ({ markdownRender: vi.fn() }));
+const { markdownRender, androidPlatform } = vi.hoisted(() => ({ markdownRender: vi.fn(), androidPlatform: vi.fn(() => false) }));
+vi.mock('../../../services/platform', async (original) => ({ ...await original<typeof import('../../../services/platform')>(), isAndroid: androidPlatform }));
 vi.hoisted(() => {
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() });
 });
@@ -30,6 +31,7 @@ describe('canvas selection keeps conversation content cached', () => {
   const explore = vi.fn();
 
   beforeEach(() => {
+    androidPlatform.mockReturnValue(false);
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     useFlowStore.setState({ nodes: [{ id: 'a', type: 'chat', position: { x: 0, y: 0 }, data: { topic: 'A' } }], edges: [
       { id: 'ab', source: 'a', target: 'b', data: { label: 'branch' } },
@@ -46,11 +48,87 @@ describe('canvas selection keeps conversation content cached', () => {
     markdownRender.mockClear();
   });
 
+  it.each([true, false])('limits blank-area context menus only on Android (%s)', (android) => {
+    androidPlatform.mockReturnValue(android);
+    act(() => root.render(<ChatMessageList nodeId="a" onExplore={explore} onRevise={vi.fn()} />));
+    act(() => container.querySelector('[data-message-id="m"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    expect(!!document.querySelector('[data-message-menu]')).toBe(!android);
+    act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    act(() => container.querySelector('[data-message-content]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    expect(document.querySelector('[data-message-menu]')).not.toBeNull();
+  });
+
+  it('preserves the fixed endpoint when Android remaps it outside the message list', () => {
+    androidPlatform.mockReturnValue(true);
+    const text = document.createTreeWalker(container.querySelector('[data-message-content]')!, NodeFilter.SHOW_TEXT).nextNode()!;
+    const outside = document.createTextNode('outside controls'); document.body.append(outside);
+    try {
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 2, text, 8);
+      act(() => document.dispatchEvent(new Event('selectionchange')));
+      selection.setBaseAndExtent(outside, 5, text, 0);
+      act(() => document.dispatchEvent(new Event('selectionchange')));
+      const range = selection.getRangeAt(0);
+      expect(range.startContainer).toBe(text);
+      expect(range.startOffset).toBe(0);
+      expect(range.endContainer).toBe(text);
+      expect(range.endOffset).toBe(8);
+      selection.setBaseAndExtent(text, 0, outside, 5);
+      act(() => document.dispatchEvent(new Event('selectionchange')));
+      expect(container.querySelector('[data-message-content]')!.contains(selection.getRangeAt(0).endContainer)).toBe(true);
+      expect(selection.toString()).not.toContain('outside controls');
+    } finally { outside.remove(); }
+  });
+
   afterEach(() => {
+    window.getSelection()?.removeAllRanges();
     act(() => root.unmount());
     container.remove();
     markdownRender.mockClear();
     vi.unstubAllGlobals();
+  });
+
+  it('follows the endpoint that moved even when the native menu event repeats old coordinates', () => {
+    const body = container.querySelector('[data-message-content]')!;
+    const text = document.createTreeWalker(body, NodeFilter.SHOW_TEXT).nextNode()!;
+    const range = document.createRange();
+    range.setStart(text, 0); range.setEnd(text, 2);
+    const cloneRange = range.cloneRange.bind(range);
+    vi.spyOn(range, 'cloneRange').mockImplementation(() => {
+      const caret = cloneRange();
+      Object.defineProperty(caret, 'getBoundingClientRect', { value: () => ({ left: caret.startOffset * 20, bottom: 100, height: 20 }) });
+      return caret;
+    });
+    window.getSelection()!.addRange(range);
+    const open = () => act(() => body.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 700, clientY: 700 })));
+    open();
+    const menu = () => document.querySelector<HTMLElement>('[data-message-menu]')!;
+    expect(menu().style.left).toBe('40px');
+    expect(menu().style.top).toBe('108px');
+    act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    range.setEnd(text, 4);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => document.dispatchEvent(new Event('selectionchange')));
+    open();
+    expect(menu().style.left).toBe('80px');
+    expect(menu().style.top).toBe('108px');
+    range.setStart(text, 1);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => document.dispatchEvent(new Event('selectionchange')));
+    expect(document.querySelector('[data-message-menu]')).toBeNull();
+    open();
+    expect(menu().style.left).toBe('20px');
+    range.setEnd(text, 6);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => document.dispatchEvent(new Event('selectionchange')));
+    expect(document.querySelector('[data-message-menu]')).toBeNull();
+    open();
+    expect(menu().style.left).toBe('120px');
+    window.getSelection()!.removeAllRanges();
+    act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    act(() => body.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 90, clientY: 120 })));
+    expect(menu().style.left).toBe('90px');
+    expect(menu().style.top).toBe('120px');
   });
 
   it('resolves a single-answer selection independently of the right-click position and disables revisions across answers', () => {
