@@ -22,6 +22,7 @@ import { ChatNodeDeleteConfirmation } from './ChatNodeDeleteConfirmation';
 import { FloatingNodePanel, type PanelPoint } from '../ui/FloatingNodePanel';
 import { deferConversationCommand } from '../../services/storage/runtime';
 import { useCancelLayer } from '../../hooks/useCancelLayer';
+import { isAndroid } from '../../services/platform';
 
 const PALETTE_COLORS = [
   '#22c55e',
@@ -34,6 +35,10 @@ const PALETTE_COLORS = [
 
 export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, selected }: NodeProps<ChatNode>) {
   const { t } = useTranslation();
+  const android = isAndroid();
+  const active = useFlowStore(state => android && state.activeNodeId === id);
+  // 安卓禁用多选后，当前活动卡片仍需显示边框及尺寸控制点；桌面继续跟随选中状态。
+  const highlighted = android ? active : selected;
   const { topic, collapsed, minimized, maximized, done, parentNodeId, branchText, parentNodeIds, mergeAction, color, label } = data;
   const openCompactCardsMaximized = useSettingsStore(state => state.openCompactCardsMaximized);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
@@ -214,7 +219,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
 
   if (minimized || collapsed) {
     return (
-      <div className={`relative h-full w-full rounded-xl border bg-surface-900 shadow-lg ${selected ? 'border-accent-500' : 'border-border'}`}
+      <div className={`relative h-full w-full rounded-xl border bg-surface-900 shadow-lg ${highlighted ? 'border-accent-500' : 'border-border'}`}
         onPointerDownCapture={() => useFlowStore.getState().activateNode(id)}
         onFocusCapture={() => useFlowStore.getState().activateNode(id)}
         onDoubleClick={handleRestore}>
@@ -252,7 +257,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       onFocusCapture={() => useFlowStore.getState().activateNode(id)}
       // 整张展开卡片恢复浏览器默认光标，避免输入区留白继承画布抓手；标题栏单独提示拖动。
       className={`relative flex flex-col cursor-auto bg-surface-900 border rounded-xl shadow-xl shadow-black/30 h-full ${
-        selected
+        highlighted
           ? 'border-accent-500/60'
           : 'border-border'
       } transition-colors`}
@@ -260,7 +265,7 @@ export const ChatNodeComponent = memo(function ChatNodeComponent({ id, data, sel
       {!maximized && <NodeResizer
         minWidth={320}
         minHeight={300}
-        isVisible={selected}
+        isVisible={highlighted}
         lineClassName="!border-accent-500/30"
         handleClassName="!bg-accent-500 !border-none !w-2 !h-2 !rounded-sm"
       />}
