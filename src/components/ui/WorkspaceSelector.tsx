@@ -6,9 +6,12 @@ import { useFlowStore } from '../../stores/flowStore';
 import { useChatStore } from '../../stores/chatStore';
 import { exportWorkspace, importWorkspace } from '../../hooks/usePersistence';
 import { exportMarkdown } from '../../utils/markdownExport';
-import { isDesktopStorage } from '../../services/storage/desktop';
-import { createDesktopWorkspace, deleteDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace } from '../../services/storage/runtime';
+import { isSqliteStorage } from '../../services/storage/client';
+import { createDesktopWorkspace, deleteDesktopWorkspace, openDesktopWorkspace, renameDesktopWorkspace, switchDesktopWorkspace, useStorageStatus } from '../../services/storage/runtime';
+import { isAndroid } from '../../services/platform';
 import { StorageControls } from './StorageControls';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
+import { NewWorkspaceDialog } from './NewWorkspaceDialog';
 
 export function WorkspaceSelector() {
   const { t } = useTranslation();
@@ -22,11 +25,15 @@ export function WorkspaceSelector() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const editingSession = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  useCancelLayer(dropdownOpen, () => setDropdownOpen(false), 50);
+  useCancelLayer(editing, () => { editingSession.current = null; setEditing(false); }, 51);
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId);
 
@@ -67,7 +74,7 @@ export function WorkspaceSelector() {
     const workspace = useWorkspaceStore.getState().workspaces.find((item) => item.id === id);
     const trimmed = (inputRef.current?.value ?? editValue).trim();
     if (workspace && trimmed && trimmed !== workspace.name) {
-      if (isDesktopStorage()) void renameDesktopWorkspace(id, trimmed);
+      if (isSqliteStorage()) void renameDesktopWorkspace(id, trimmed);
       else renameWorkspace(id, trimmed);
     }
     setEditing(false);
@@ -93,10 +100,6 @@ export function WorkspaceSelector() {
         if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         e.preventDefault();
         commitRename();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        editingSession.current = null;
-        setEditing(false);
       }
     },
     [commitRename]
@@ -105,7 +108,7 @@ export function WorkspaceSelector() {
   const handleSwitch = useCallback(
     (id: string) => {
       if (id !== activeWorkspaceId) {
-        if (isDesktopStorage()) void switchDesktopWorkspace(id);
+        if (isSqliteStorage()) void switchDesktopWorkspace(id);
         else switchWorkspace(id);
       }
       setDropdownOpen(false);
@@ -114,7 +117,8 @@ export function WorkspaceSelector() {
   );
 
   const handleNew = useCallback(() => {
-    if (isDesktopStorage()) void createDesktopWorkspace();
+    if (isAndroid()) setShowNewWorkspace(true);
+    else if (isSqliteStorage()) void createDesktopWorkspace();
     else createWorkspace();
     setDropdownOpen(false);
   }, [createWorkspace]);
@@ -122,7 +126,7 @@ export function WorkspaceSelector() {
   const handleDelete = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      if (isDesktopStorage()) {
+      if (isSqliteStorage()) {
         if (window.confirm('删除工作区会永久删除工作区文件和此设备上的本地历史，无法撤销。确定删除吗？')) void deleteDesktopWorkspace(id);
       } else deleteWorkspace(id);
     },
@@ -135,7 +139,7 @@ export function WorkspaceSelector() {
       setDropdownOpen(false);
       // 等切换确实完成后再编辑，避免固定延时误把名称保存到另一个工作区。
       if (id !== activeWorkspaceId) {
-        if (isDesktopStorage()) await switchDesktopWorkspace(id);
+        if (isSqliteStorage()) await switchDesktopWorkspace(id);
         else switchWorkspace(id);
       }
       if (useWorkspaceStore.getState().activeWorkspaceId === id) beginEditing(id);
@@ -143,7 +147,10 @@ export function WorkspaceSelector() {
     [activeWorkspaceId, switchWorkspace, beginEditing]
   );
 
-  const handleImport = useCallback(() => fileRef.current?.click(), []);
+  const handleImport = useCallback(() => {
+    if (isSqliteStorage()) void openDesktopWorkspace();
+    else fileRef.current?.click();
+  }, []);
 
   const handleExportMarkdown = useCallback(() => {
     const flow = useFlowStore.getState();
@@ -173,9 +180,10 @@ export function WorkspaceSelector() {
   );
 
   return (
-    <div className="h-9 bg-surface-950 border-b border-border flex items-center px-3 shrink-0 select-none">
+    <><div className="h-9 bg-surface-950 border-b border-border flex items-center gap-2 px-3 shrink-0 select-none">
       {/* Left: workspace name + dropdown */}
-      <div className="relative" ref={dropdownRef}>
+      {/* 窄屏只压缩名称，工具栏与名称保持同一行并靠右。 */}
+      <div className="relative min-w-0" ref={dropdownRef}>
         {editing ? (
           <input
             ref={inputRef}
@@ -183,20 +191,21 @@ export function WorkspaceSelector() {
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={commitRename}
             onKeyDown={handleKeyDown}
-            className="bg-surface-900 border border-border-hover rounded px-2 py-0.5 text-sm text-text-primary outline-none focus:border-accent-500 w-48"
+            className="bg-surface-900 border border-border-hover rounded px-2 py-0.5 text-sm text-text-primary outline-none focus:border-accent-500 w-48 max-w-full"
           />
         ) : (
           <div className="flex items-center gap-1 group/name">
             <button
+              ref={menuButtonRef}
               onClick={() => setDropdownOpen((o) => !o)}
-              className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+              className="flex min-w-0 items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              <span className="max-w-48 truncate" title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
-              <ChevronDown size={14} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+              <span className={`${isAndroid() ? 'max-w-36' : 'max-w-48'} truncate`} title={active?.filePath}>{active?.name ?? t('workspace.defaultName')}</span>
+              <ChevronDown size={14} className={`shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
             <button
               onClick={startEditing}
-              className="opacity-0 group-hover/name:opacity-100 p-0.5 text-text-muted hover:text-text-primary transition-all"
+              className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover/name:opacity-100'} shrink-0 p-0.5 text-text-muted hover:text-text-primary transition-all`}
               title={t('workspace.renameWorkspace')}
             >
               <Pencil size={12} />
@@ -219,14 +228,14 @@ export function WorkspaceSelector() {
                   <span className="truncate flex-1 text-left">{ws.name}</span>
                   <button
                     onClick={(e) => handleRenameFromDropdown(e, ws.id)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-text-muted hover:text-text-primary transition-all"
+                    className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-0.5 text-text-muted hover:text-text-primary transition-all`}
                     title={t('workspace.renameWorkspace')}
                   >
                     <Pencil size={14} />
                   </button>
                   <button
                     onClick={(e) => handleDelete(e, ws.id)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-text-muted hover:text-red-400 transition-all"
+                    className={`${isAndroid() ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-0.5 text-text-muted hover:text-red-400 transition-all`}
                     title={t('workspace.deleteWorkspace')}
                   >
                     <Trash2 size={14} />
@@ -251,8 +260,8 @@ export function WorkspaceSelector() {
       <div className="flex-1" />
 
       {/* Right: export + import + github */}
-      <div className="flex items-center gap-1">
-        {isDesktopStorage() && <StorageControls />}
+      <div className="flex shrink-0 items-center gap-1">
+        {isSqliteStorage() && <StorageControls />}
         <button
           onClick={handleExportMarkdown}
           className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
@@ -292,5 +301,10 @@ export function WorkspaceSelector() {
         />
       </div>
     </div>
+    {showNewWorkspace && <NewWorkspaceDialog onCreate={async (name) => {
+      const workspace = await createDesktopWorkspace(name);
+      if (!workspace) throw new Error(useStorageStatus.getState().error ?? t('workspace.createFailed'));
+    }} onClose={() => { setShowNewWorkspace(false); menuButtonRef.current?.focus(); }} />}
+    </>
   );
 }

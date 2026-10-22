@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CaudalFlow</string>
+    <string name="title_activity_main">CaudalFlow</string>
+    <string name="package_name">com.caudalflow.learning.android</string>
+    <string name="custom_url_scheme">com.caudalflow.learning.android</string>
+</resources>

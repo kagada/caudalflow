@@ -4,6 +4,7 @@ import { ArrowUpRight } from 'lucide-react';
 import { blockBacklinks, type MessageBacklink } from '../../utils/referenceBacklinks';
 import type { HighlightRange } from '../../utils/referenceHighlights';
 import { locateReferenceMessage } from '../../services/referenceNavigation';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 interface Props {
   backlinks: MessageBacklink[];
@@ -33,19 +34,18 @@ export const ReferenceBacklinks = memo(function ReferenceBacklinks({ backlinks, 
     setOpen(true);
   };
   const leave = () => { if (!pinned) timer.current = setTimeout(close, 160); };
+  useCancelLayer(open && links.length > 0, close, 12000);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !anchor.current?.contains(event.target) && !menu.current?.contains(event.target)) close();
     };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
     const scroll = (event: Event) => { if (!(event.target instanceof Node) || !menu.current?.contains(event.target)) close(); };
     document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', escape);
     document.addEventListener('scroll', scroll, true);
     window.addEventListener('resize', close); window.addEventListener('blur', close);
     return () => {
-      document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape);
+      document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', close); window.removeEventListener('blur', close);
     };
   }, [open, close]);

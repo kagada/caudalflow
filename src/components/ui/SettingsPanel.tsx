@@ -4,6 +4,7 @@ import { X, Sun, Moon, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { BuiltinPromptSettings } from './BuiltinPromptSettings';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 export function SettingsPanel() {
   const { t } = useTranslation();
@@ -13,6 +14,8 @@ export function SettingsPanel() {
   const updateConfig = useSettingsStore((s) => s.updateLLMConfig);
   const showSystemPrompts = useSettingsStore((s) => s.showSystemPrompts);
   const toggleSystemPrompts = useSettingsStore((s) => s.toggleSystemPrompts);
+  const openCompactCardsMaximized = useSettingsStore((s) => s.openCompactCardsMaximized);
+  const setOpenCompactCardsMaximized = useSettingsStore((s) => s.setOpenCompactCardsMaximized);
   const language = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const theme = useSettingsStore((s) => s.theme);
@@ -21,6 +24,7 @@ export function SettingsPanel() {
   const tab = useSettingsStore((s) => s.settingsSection);
   const setTab = (settingsSection: string) => useSettingsStore.setState({ settingsSection });
   const close = () => setShowSettings(false);
+  useCancelLayer(showSettings, close, 11000);
 
   if (!showSettings) return null;
 
@@ -86,6 +90,21 @@ export function SettingsPanel() {
         {/* Display Settings */}
         <div className="border-t border-border pt-4">
           <h3 className="text-xs font-semibold text-text-secondary mb-3">{t('settings.display')}</h3>
+          <div className="mb-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs text-text-secondary">{t('settings.openCompactCardsMaximized')}</span>
+              <button
+                role="switch"
+                aria-label={t('settings.openCompactCardsMaximized')}
+                aria-checked={openCompactCardsMaximized}
+                onClick={() => setOpenCompactCardsMaximized(!openCompactCardsMaximized)}
+                className={`relative w-9 h-5 shrink-0 rounded-full transition-colors ${openCompactCardsMaximized ? 'bg-accent-500' : 'bg-surface-700'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${openCompactCardsMaximized ? 'translate-x-4' : ''}`} />
+              </button>
+            </div>
+            <p className="mt-1 text-[10px] text-text-muted">{t('settings.openCompactCardsMaximizedDescription')}</p>
+          </div>
           <label className="flex items-center justify-between cursor-pointer">
             <span className="text-xs text-text-secondary">{t('settings.showSystemPrompts')}</span>
             <button
@@ -125,6 +144,5 @@ export function SettingsPanel() {
   return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/45 p-6" onKeyDown={(event) => {
     // 设置内的按键不传到画布；关闭设置不会触发卡片操作。
     event.stopPropagation();
-    if (event.key === 'Escape') close();
   }}>{panel}</div>, document.body);
 }

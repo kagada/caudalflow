@@ -1,22 +1,26 @@
 import { useTranslation } from 'react-i18next';
 import { MousePointer2, GitBranch, BoxSelect, Maximize2, Plus, Move } from 'lucide-react';
+import { isAndroid } from '../../services/platform';
 
 export function HelpGuidePanel() {
   const { t } = useTranslation();
+  const android = isAndroid();
 
   const shortcuts = [
     { icon: Plus, label: t('help.shortcuts.newNode'), description: t('help.shortcuts.newNodeDescription') },
-    { icon: Move, label: t('help.shortcuts.panCanvas'), description: t('help.shortcuts.panCanvasDescription') },
+    { icon: Move, label: t('help.shortcuts.panCanvas'), description: t(android ? 'help.shortcuts.panCanvasTouchDescription' : 'help.shortcuts.panCanvasDescription') },
     { icon: MousePointer2, label: t('help.shortcuts.selectText'), description: t('help.shortcuts.selectTextDescription') },
     { icon: GitBranch, label: t('help.shortcuts.branchFromText'), description: t('help.shortcuts.branchFromTextDescription') },
-    { icon: BoxSelect, label: t('help.shortcuts.multiSelectNodes'), description: t('help.shortcuts.multiSelectNodesDescription') },
-    { icon: GitBranch, label: t('help.shortcuts.mergeNodes'), description: t('help.shortcuts.mergeNodesDescription') },
+    ...(!android ? [
+      { icon: BoxSelect, label: t('help.shortcuts.multiSelectNodes'), description: t('help.shortcuts.multiSelectNodesDescription') },
+      { icon: GitBranch, label: t('help.shortcuts.mergeNodes'), description: t('help.shortcuts.mergeNodesDescription') },
+    ] : []),
     { icon: Maximize2, label: t('help.shortcuts.maximizeNode'), description: t('help.shortcuts.maximizeNodeDescription') },
   ];
 
   const tips = [
     t('help.tips.escClosesPopup'),
-    t('help.tips.mergedNodesContext'),
+    ...(!android ? [t('help.tips.mergedNodesContext')] : []),
     t('help.tips.branchRetainsContext'),
   ];
 

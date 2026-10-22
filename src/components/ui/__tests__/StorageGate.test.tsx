@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { StorageGate } from '../StorageGate';
 import { recoverDesktopWorkspace, useStorageStatus } from '../../../services/storage/runtime';
 
-vi.mock('../../../services/storage/desktop', () => ({ isDesktopStorage: () => true }));
+vi.mock('../../../services/storage/client', () => ({ isSqliteStorage: () => true }));
 vi.mock('../../../services/storage/runtime', async () => {
   const { create } = await import('zustand');
   return { useStorageStatus: create(() => ({ ready: true, busy: false, error: null })),

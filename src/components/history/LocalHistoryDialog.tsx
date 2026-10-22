@@ -4,6 +4,7 @@ import { clearDesktopHistory, listDesktopHistory, readDesktopHistory, restoreDes
 import { buildHistoryView } from '../../services/storage/historyView';
 import type { HistoryDetail, HistoryEntry } from '../../services/storage/types';
 import { HistoryItemDiff } from './HistoryItemDiff';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 const changeNames = { added: '新增', removed: '删除', modified: '修改' };
 
@@ -35,11 +36,7 @@ export function LocalHistoryDialog({ workspaceId, workspaceName, close }: { work
     return () => { active = false; };
     // 初始化记录会原地合并，刷新列表后即使 ID 相同也要重新读取正文。
   }, [entryId, workspaceId, refreshId]);
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) { event.stopPropagation(); close(); } };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
-  }, [busy, close]);
+  useCancelLayer(true, () => { if (!busy) close(); }, 2000);
   const detail = loaded?.id === entryId ? loaded.data : undefined;
   const conversations = useMemo(() => detail ? buildHistoryView(detail) : [], [detail]);
   const chosenConversation = conversations.find((conversation) => conversation.items.some((item) => item.id === itemId)) ?? conversations[0];

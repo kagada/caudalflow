@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAutoScroll } from '../../hooks/useAutoScroll';
 import { useTextSelection, selectionDocuments } from '../../hooks/useTextSelection';
+import { useSelectionMenuAnchor } from '../../hooks/useSelectionMenuAnchor';
 import type { ReferenceSelection } from '../../types/chat';
 import { createReference } from '../../services/references';
 import { copyReference } from '../../services/referenceClipboard';
@@ -16,7 +17,8 @@ import { SelectionPopup } from './SelectionPopup';
 import { MessageContextMenu, type MenuTarget } from './MessageContextMenu';
 import { DocumentVersions } from './DocumentVersions';
 import { UsageStatistics } from './UsageStatistics';
-import { isDesktopStorage } from '../../services/storage/desktop';
+import { isSqliteStorage } from '../../services/storage/client';
+import { isAndroid } from '../../services/platform';
 import { buildBacklinks, selectBacklinkInputs } from '../../utils/referenceBacklinks';
 
 interface ChatMessageListProps {
@@ -47,6 +49,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [versionDocument, setVersionDocument] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const selectionMenuAnchor = useSelectionMenuAnchor(containerRef, closeMenu);
 
   const contextMenu = (event: React.MouseEvent) => {
     const selected = window.getSelection();
@@ -60,8 +63,14 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
       const end = (range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement)?.closest('[data-message-id]');
       const message = start && start === end && containerRef.current!.contains(start)
         ? allMessages.find((item) => item.id === start.getAttribute('data-message-id')) : undefined;
-      setMenu({ kind: 'selection', text, message, sources: selectionDocuments(containerRef.current!, range), x: event.clientX, y: event.clientY });
+      const anchor = selectionMenuAnchor(selected);
+      setMenu({ kind: 'selection', text, message, sources: selectionDocuments(containerRef.current!, range),
+        x: anchor?.x ?? event.clientX, y: anchor?.y ?? event.clientY, selectionBounds: anchor?.selectionBounds });
       return;
+    }
+    // 空白处没有选区时也不弹消息菜单，保持安卓“仅正文响应长按”的范围。
+    if (isAndroid() && !(event.target as HTMLElement).closest('.select-text')) {
+      event.preventDefault(); event.stopPropagation(); return;
     }
     const id = (event.target as HTMLElement).closest('[data-message-id]')?.getAttribute('data-message-id');
     const message = allMessages.find((item) => item.id === id);
@@ -90,7 +99,8 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
     <div className="relative flex-1 min-h-0" ref={containerRef} onContextMenu={contextMenu}>
       <div
         ref={scrollRef}
-        className="nowheel nodrag nopan h-full overflow-y-auto select-text"
+        // 安卓只从正文启动选字，避免长按整行空白时吸附到远处文字；桌面保留现有操作。
+        className={`nowheel nodrag nopan h-full overflow-y-auto ${isAndroid() ? 'select-none' : 'select-text'}`}
         onMouseUp={onMouseUp}
       >
         <WebSearchDebug nodeId={nodeId} />
@@ -108,7 +118,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         )}
       </div>
       {versionDocument && <DocumentVersions nodeId={nodeId} documentId={versionDocument} close={() => setVersionDocument(null)} />}
-      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isDesktopStorage() ? setVersionDocument : undefined} copyReference={async () => {
+      {menu && <MessageContextMenu target={menu} busy={isStreaming} close={closeMenu} explore={handleExplore} versions={isSqliteStorage() ? setVersionDocument : undefined} copyReference={async () => {
         if (menu.kind === 'message' && menu.message.reference) await copyReference(menu.message.reference);
         else await copyReference(await createReference(nodeId, menu.kind === 'selection' ? menu.sources : [{ documentId: menu.message.id, text: menu.message.content }], { deferSummary: true }));
       }} revise={(id, prompt) => onRevise?.(id, prompt)} remove={(id) => {

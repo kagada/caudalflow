@@ -7,6 +7,34 @@ beforeEach(() => {
 });
 
 describe('flowStore', () => {
+  it.each([
+    ['minimized', false], ['collapsed', false], ['minimized', true], ['collapsed', true],
+  ] as const)('opens a %s card with maximized=%s while preserving its layout and data', (kind, maximized) => {
+    const store = useFlowStore.getState();
+    const id = store.addChatNode({ x: 120, y: 240 }, { topic: '阅读', [kind]: true, label: '标签', done: true });
+    store.updateNodeStyle(id, { width: 760, height: 640 });
+    const before = useFlowStore.getState().nodes[0];
+    store.openCompactCard(id, maximized);
+    const opened = useFlowStore.getState().nodes[0];
+    expect(opened.position).toEqual(before.position);
+    expect(opened.style).toEqual(before.style);
+    expect(opened.data).toMatchObject({ topic: '阅读', label: '标签', done: true, minimized: false, collapsed: false, maximized });
+    expect(useFlowStore.getState().activeNodeId).toBe(id);
+    store.closeActiveCard();
+    expect(useFlowStore.getState().nodes[0].data).toMatchObject({ minimized: true, maximized: false });
+    expect(useFlowStore.getState().nodes[0].style).toEqual(before.style);
+  });
+
+  it('opens only one maximized reading view and ignores a second open on an already expanded card', () => {
+    const store = useFlowStore.getState();
+    const previous = store.addChatNode({ x: 0, y: 0 }, { topic: '旧阅读', maximized: true });
+    const id = store.addChatNode({ x: 100, y: 100 }, { topic: '小卡片', minimized: true });
+    store.openCompactCard(id, true);
+    expect(useFlowStore.getState().nodes.find(node => node.id === previous)?.data.maximized).toBe(false);
+    store.openCompactCard(id, false);
+    expect(useFlowStore.getState().nodes.find(node => node.id === id)?.data.maximized).toBe(true);
+  });
+
   it('preserves expanded dimensions through compact measurements and saves explicit user resizing', () => {
     const id = useFlowStore.getState().addChatNode({ x: 10, y: 20 }, { topic: '尺寸' });
     const store = useFlowStore.getState();

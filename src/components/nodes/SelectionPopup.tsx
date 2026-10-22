@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, ArrowRight, X } from 'lucide-react';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 interface SelectionPopupProps {
   text: string;
@@ -20,15 +21,7 @@ export function SelectionPopup({ text, x, y, onExplore, onDismiss }: SelectionPo
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onDismiss();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onDismiss]);
+  useCancelLayer(true, onDismiss, 1050);
 
   const submit = (customPrompt: string) => {
     onExplore(text, customPrompt);

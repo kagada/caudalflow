@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Menu, Square, Copy, X, Palette, Trash2, CircleCheck, Circle } from 'lucide-react';
 import type { PanelPoint } from '../ui/FloatingNodePanel';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 interface ChatNodeHeaderProps {
   topic: string;
@@ -25,13 +26,12 @@ export function ChatNodeHeader({ topic, maximized, done, isPanning, onMinimize, 
   const [copying, setCopying] = useState(false);
   const [error, setError] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
+  useCancelLayer(open, () => setOpen(false), 1050);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setOpen(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } };
     document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+    return () => { document.removeEventListener('pointerdown', outside); };
   }, [open]);
   const perform = (action: () => void) => { setOpen(false); action(); };
   const btnClass = 'nodrag p-1.5 rounded-md hover:bg-surface-700 focus-visible:bg-surface-700 transition-colors';

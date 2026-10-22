@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceData } from '../../../types/workspace';
 
 const fake = vi.hoisted(() => ({ request: vi.fn(), save: vi.fn(), load: vi.fn() }));
-vi.mock('../desktop', () => ({ desktopStorage: fake, isDesktopStorage: () => true }));
+vi.mock('../client', () => ({ sqliteStorage: fake, isSqliteStorage: () => true }));
 
 describe('desktop command and persistence coordination', () => {
   let runtime: typeof import('../runtime');

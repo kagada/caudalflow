@@ -21,17 +21,6 @@ export function ChatNodeDeleteConfirmation({
   const truncatedTopic = topic.length > 48 ? topic.slice(0, 48) + '...' : topic;
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCancel();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
-
-  useEffect(() => {
     // Use a ref flag to skip the very first mousedown (the one that opened the popup)
     let skipFirst = true;
     const handleMouseDown = (e: MouseEvent) => {

@@ -5,7 +5,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useFlowStore } from '../stores/flowStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { desktopStorage, isDesktopStorage } from './storage/desktop';
+import { sqliteStorage, isSqliteStorage } from './storage/client';
 import { flushDesktopStorage } from './storage/runtime';
 import { getProvider } from './providers/registry';
 import { trackGeneration } from './streamLifecycle';
@@ -32,8 +32,8 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
   if (cache.has(key)) return cache.get(key)!;
   if (pending.has(key)) return pending.get(key)!;
   const task = (async () => {
-    if (isDesktopStorage()) {
-      const existing = await desktopStorage.request<string | null>('referenceCacheGet', { id: workspaceId, key });
+    if (isSqliteStorage()) {
+      const existing = await sqliteStorage.request<string | null>('referenceCacheGet', { id: workspaceId, key });
       if (existing) { cache.set(key, existing); return existing; }
     }
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('工作区已切换，请重新复制引用');
@@ -65,8 +65,8 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
     }
     if (summary.length > maxChars) throw new Error(`摘要压缩后仍超过 ${maxChars} 字，请重试`);
     cache.set(key, summary);
-    if (isDesktopStorage()) {
-      try { await desktopStorage.request('referenceCachePut', { id: workspaceId, key, summary }); }
+    if (isSqliteStorage()) {
+      try { await sqliteStorage.request('referenceCachePut', { id: workspaceId, key, summary }); }
       catch { /* 引用自身保存摘要，缓存写入失败不丢弃已经完成的结果。 */ }
     }
     return summary;
@@ -78,7 +78,7 @@ async function summarize(key: string, context: ChatMessage[], workspaceId: strin
 // 摘要范围截止到最后一篇目标文档，选区不同仍可复用同一背景；不读取祖先的最新状态。
 export async function createReference(nodeId: string, selections?: ReferenceSelection[], options: { deferSummary?: boolean } = {}): Promise<ContentReference> {
   const workspaceId = useWorkspaceStore.getState().activeWorkspaceId ?? '';
-  if (isDesktopStorage()) await flushDesktopStorage();
+  if (isSqliteStorage()) await flushDesktopStorage();
   if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('工作区已切换，请重新复制引用');
   const node = useFlowStore.getState().nodes.find((item) => item.id === nodeId);
   const conversation = useChatStore.getState().conversations[nodeId];

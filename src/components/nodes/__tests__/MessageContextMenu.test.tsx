@@ -5,12 +5,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MessageContextMenu } from '../MessageContextMenu';
 import i18n from '../../../i18n';
 import { useSettingsStore } from '../../../stores/settingsStore';
+const { android } = vi.hoisted(() => ({ android: vi.fn(() => false) }));
+vi.mock('../../../services/platform', async original => ({ ...await original<typeof import('../../../services/platform')>(), isAndroid: android }));
 
 vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
 
 let root: Root;
 let element: HTMLDivElement;
 beforeEach(async () => {
+  android.mockReturnValue(false);
   useSettingsStore.setState({ promptPresets: [], showPromptSettings: false });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   await i18n.changeLanguage('zh');
@@ -35,6 +38,29 @@ it('runs the selected preset with the original selection snapshot', async () => 
   expect(explore).toHaveBeenCalledWith('跨消息选区', '保留例子并详细解释');
 });
 afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.unstubAllGlobals(); });
+
+it('keeps the full menu inside the viewport using its measured height', async () => {
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 500 } as DOMRect);
+  try {
+    await act(async () => root.render(<MessageContextMenu target={{ kind: 'selection', text: '选区', x: 50, y: 700 }} busy={false} close={vi.fn()} explore={vi.fn()} revise={vi.fn()} remove={vi.fn()} />));
+    expect(document.querySelector<HTMLElement>('[data-message-menu]')!.style.top).toBe(`${window.innerHeight - 500 - 8}px`);
+  } finally { bounds.mockRestore(); }
+});
+
+it('moves an Android selection menu above the handles instead of clamping it over them', async () => {
+  android.mockReturnValue(true);
+  vi.stubGlobal('innerWidth', 400); vi.stubGlobal('innerHeight', 800);
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 256, height: 400 } as DOMRect);
+  try {
+    await act(async () => root.render(<MessageContextMenu target={{ kind: 'selection', text: '选区', x: 350, y: 718,
+      selectionBounds: { start: { x: 320, top: 650, bottom: 670 }, end: { x: 350, top: 690, bottom: 710 }, active: 'end' } }} busy={false} close={vi.fn()} explore={vi.fn()} revise={vi.fn()} remove={vi.fn()} />));
+    const menu = document.querySelector<HTMLElement>('[data-message-menu]')!;
+    expect(parseFloat(menu.style.top) + 400).toBeLessThan(650);
+    expect(menu.style.height).toBe('');
+    expect(menu.style.maxHeight).toBe('');
+    expect(menu.style.overflowY).toBe('');
+  } finally { bounds.mockRestore(); }
+});
 
 it('disables revision actions with an explanation for text spanning multiple bubbles', async () => {
   await act(async () => root.render(<MessageContextMenu target={{ kind: 'selection', text: '问题\n回答'.repeat(100), x: 50, y: 50 }} busy={false} close={vi.fn()} explore={vi.fn()} revise={vi.fn()} remove={vi.fn()} />));

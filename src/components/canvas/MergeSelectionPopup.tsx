@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, GitMerge, Sparkles, Link, FileText } from 'lucide-react';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 interface MergeSelectionPopupProps {
   topics: string[];
@@ -18,15 +19,7 @@ export function MergeSelectionPopup({ topics, onMerge, onDismiss }: MergeSelecti
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onDismiss();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onDismiss]);
+  useCancelLayer(true, onDismiss, 50);
 
   const submit = (action: string) => {
     if (action.trim()) {

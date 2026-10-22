@@ -1,0 +1,9 @@
+// 构建工具和插件共用镜像，避免本机无法直连 Google Maven 时反复超时。
+allprojects {
+    buildscript.repositories {
+        maven { url 'https://repo.huaweicloud.com/repository/maven/' }
+    }
+    repositories {
+        maven { url 'https://repo.huaweicloud.com/repository/maven/' }
+    }
+}

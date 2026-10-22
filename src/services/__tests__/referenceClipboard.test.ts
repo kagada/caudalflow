@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sampleReference } from './referenceFixtures';
 import { copyReference, readReferenceClipboard, referenceClipboardFormats } from '../referenceClipboard';
-vi.mock('../storage/desktop', () => ({ isDesktopStorage: () => true }));
+vi.mock('../storage/client', () => ({ isSqliteStorage: () => true }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe('reference clipboard formats', () => {

@@ -17,7 +17,7 @@ let root: Root;
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
-  useSettingsStore.setState({ showSettings: true, settingsSection: 'general', llmConfig: { providerId: 'mock', providerName: 'Mock', endpoint: '', apiKey: '', model: '', temperature: 0.7, maxTokens: 2048, } });
+  useSettingsStore.setState({ showSettings: true, settingsSection: 'general', openCompactCardsMaximized: false, llmConfig: { providerId: 'mock', providerName: 'Mock', endpoint: '', apiKey: '', model: '', temperature: 0.7, maxTokens: 2048, } });
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -41,6 +41,15 @@ async function change(selector: string, value: string) {
 }
 
 describe('API settings form', () => {
+  it('lets the user change and persist the compact-card reading preference', async () => {
+    const toggle = document.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    await act(async () => toggle.click());
+    expect(useSettingsStore.getState().openCompactCardsMaximized).toBe(true);
+    expect(JSON.parse(localStorage.getItem('caudalflow-settings')!).state.openCompactCardsMaximized).toBe(true);
+    await act(async () => toggle.click());
+    expect(useSettingsStore.getState().openCompactCardsMaximized).toBe(false);
+  });
   it('exposes the actual built-in summary prompt and persists edits with a restore-default action', async () => {
     await act(async () => [...document.querySelectorAll('nav button')].find((button) => button.textContent === '内置提示词')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     const input = document.querySelector<HTMLTextAreaElement>('[aria-label="内置提示词内容"]')!;

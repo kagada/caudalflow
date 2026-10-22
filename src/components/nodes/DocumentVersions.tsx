@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { listDocumentVersions, selectDocumentVersion } from '../../services/storage/runtime';
 import type { DocumentVersion } from '../../services/storage/types';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 // 功能版本可直接切换并撤销；这与不可撤销的个人历史恢复是两个入口。
 export function DocumentVersions({ nodeId, documentId, close }: { nodeId: string; documentId: string; close: () => void }) {
+  useCancelLayer(true, close, 2000);
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {

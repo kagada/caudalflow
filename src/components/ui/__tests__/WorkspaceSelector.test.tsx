@@ -5,24 +5,98 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '../../../i18n';
 import { useWorkspaceStore } from '../../../stores/workspaceStore';
 import { WorkspaceSelector } from '../WorkspaceSelector';
+import { cancelUI } from '../../../services/uiCancel';
 
 vi.hoisted(() => { window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn() }); });
-const fake = vi.hoisted(() => ({ rename: vi.fn(), switch: vi.fn() }));
-vi.mock('../../../services/storage/desktop', () => ({ isDesktopStorage: () => true }));
+const fake = vi.hoisted(() => ({ rename: vi.fn(), switch: vi.fn(), create: vi.fn(), android: false }));
+vi.mock('../../../services/platform', async (original) => ({ ...await original<typeof import('../../../services/platform')>(), isAndroid: () => fake.android }));
+vi.mock('../../../services/storage/client', () => ({ isSqliteStorage: () => true }));
 vi.mock('../../../services/storage/runtime', () => ({ renameDesktopWorkspace: fake.rename, switchDesktopWorkspace: fake.switch,
-  createDesktopWorkspace: vi.fn(), deleteDesktopWorkspace: vi.fn(), initializeDesktopStorage: vi.fn(), exportDesktopWorkspace: vi.fn() }));
+  createDesktopWorkspace: fake.create, useStorageStatus: { getState: () => ({ error: '磁盘不可写' }) },
+  deleteDesktopWorkspace: vi.fn(), initializeDesktopStorage: vi.fn(), exportDesktopWorkspace: vi.fn() }));
 vi.mock('../StorageControls', () => ({ StorageControls: () => null }));
 
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
+  fake.android = false;
   await i18n.changeLanguage('zh');
   useWorkspaceStore.setState({ activeWorkspaceId: 'a', workspaces: ['a', 'b'].map((id) => ({ id, name: id, createdAt: 0, updatedAt: 0 })) });
   fake.rename.mockImplementation(async (id, name) => useWorkspaceStore.getState().renameWorkspace(id, name));
   fake.switch.mockImplementation(async (id) => useWorkspaceStore.getState().switchWorkspace(id));
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root.render(<WorkspaceSelector />));
+});
+
+describe('workspace creation', () => {
+  async function openNew(android: boolean) {
+    fake.android = android;
+    await act(async () => container.querySelector('button')!.click());
+    const button = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '新建工作区')!;
+    await act(async () => button.click());
+    return document.querySelector<HTMLFormElement>('[role="dialog"]');
+  }
+
+  async function enterName(dialog: HTMLFormElement, value: string) {
+    const input = dialog.querySelector('input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    return input;
+  }
+
+  it('keeps the PC creation entry unchanged', async () => {
+    expect(await openNew(false)).toBeNull();
+    expect(fake.create).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it('opens an Android dialog without creating or showing a permanent export reminder', async () => {
+    const dialog = (await openNew(true))!;
+    expect(dialog).not.toBeNull();
+    expect(document.activeElement).toBe(dialog.querySelector('input'));
+    expect(dialog.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+    expect(fake.create).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('内部副本');
+    await enterName(dialog, '   ');
+    expect(dialog.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+  });
+
+  it('trims the name and prevents duplicate creation and back navigation while saving', async () => {
+    let resolve!: (value: unknown) => void;
+    fake.create.mockImplementation(() => new Promise(done => { resolve = done; }));
+    const dialog = (await openNew(true))!;
+    await enterName(dialog, '  安卓笔记  ');
+    await act(async () => {
+      dialog.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      dialog.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      expect(cancelUI()).toBe(true);
+    });
+    expect(fake.create).toHaveBeenCalledExactlyOnceWith('安卓笔记');
+    expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+    await act(async () => resolve({ metadata: { id: 'new' } }));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('cancels with the shared back handler without creating a workspace', async () => {
+    const dialog = (await openNew(true))!;
+    await enterName(dialog, '不应创建');
+    await act(async () => { expect(cancelUI()).toBe(true); });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(fake.create).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(container.querySelector('button'));
+  });
+
+  it('keeps the name and shows the storage error when creation fails', async () => {
+    fake.create.mockResolvedValue(undefined);
+    const dialog = (await openNew(true))!;
+    const input = await enterName(dialog, '保留名称');
+    await act(async () => { dialog.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    expect(dialog.querySelector('[role="alert"]')!.textContent).toBe('磁盘不可写');
+    expect(input.value).toBe('保留名称');
+    expect(dialog.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(false);
+  });
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 

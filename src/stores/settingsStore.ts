@@ -3,27 +3,19 @@ import { persist } from 'zustand/middleware';
 import i18n from '../i18n';
 import type { LLMConfig } from '../types/chat';
 import { DEFAULT_BUILTIN_PROMPTS, type BuiltinPromptKey } from '../services/builtinPrompts';
+import { getDefaultSettings, type SettingsDefaults, type Theme, type PromptPreset } from '../services/defaultSettings';
 
-type Theme = 'light' | 'dark' | 'system';
-export interface PromptPreset { id: string; name: string; content: string }
+export type { PromptPreset } from '../services/defaultSettings';
 
-interface SettingsState {
+interface SettingsState extends SettingsDefaults {
   settingsSection: string;
-  builtinPrompts: Record<BuiltinPromptKey, string>;
   setBuiltinPrompt: (key: BuiltinPromptKey, content: string) => void;
-  promptPresets: PromptPreset[];
   showPromptSettings: boolean;
   setShowPromptSettings: (show: boolean) => void;
   savePromptPreset: (preset: PromptPreset) => void;
   deletePromptPreset: (id: string) => void;
-  llmConfig: LLMConfig;
-  showMinimap: boolean;
-  showSystemPrompts: boolean;
   showSettings: boolean;
-  welcomeDismissed: boolean;
-  language: string;
-  theme: Theme;
-  selectMode: boolean;
+  setOpenCompactCardsMaximized: (enabled: boolean) => void;
   updateLLMConfig: (config: Partial<LLMConfig>) => void;
   toggleMinimap: () => void;
   toggleSystemPrompts: () => void;
@@ -51,31 +43,16 @@ function applyTheme(theme: Theme) {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      ...getDefaultSettings(),
       settingsSection: 'general',
-      builtinPrompts: { ...DEFAULT_BUILTIN_PROMPTS },
       setBuiltinPrompt: (key, content) => set({ builtinPrompts: { ...get().builtinPrompts, [key]: content.trim() || DEFAULT_BUILTIN_PROMPTS[key] } }),
-      promptPresets: [],
       showPromptSettings: false,
       setShowPromptSettings: (show) => set({ showPromptSettings: show }),
       // 预设与 API 设置一起保存，菜单始终读取最新列表。
       savePromptPreset: (preset) => set({ promptPresets: get().promptPresets.some((item) => item.id === preset.id) ? get().promptPresets.map((item) => item.id === preset.id ? preset : item) : [...get().promptPresets, preset] }),
       deletePromptPreset: (id) => set({ promptPresets: get().promptPresets.filter((item) => item.id !== id) }),
-      llmConfig: {
-        providerId: '',
-        providerName: '',
-        endpoint: '',
-        apiKey: '',
-        model: '',
-        temperature: 0.7,
-        maxTokens: 2048,
-      },
-      showMinimap: true,
-      showSystemPrompts: false,
       showSettings: false,
-      welcomeDismissed: false,
-      language: 'en',
-      theme: 'dark',
-      selectMode: false,
+      setOpenCompactCardsMaximized: (enabled) => set({ openCompactCardsMaximized: enabled }),
 
       updateLLMConfig: (config) => {
         const current = get().llmConfig;
@@ -132,6 +109,7 @@ export const useSettingsStore = create<SettingsState>()(
         llmConfig: state.llmConfig,
         showMinimap: state.showMinimap,
         showSystemPrompts: state.showSystemPrompts,
+        openCompactCardsMaximized: state.openCompactCardsMaximized,
         welcomeDismissed: state.welcomeDismissed,
         language: state.language,
         theme: state.theme,
@@ -146,7 +124,9 @@ export const useSettingsStore = create<SettingsState>()(
         if (config.providerId === 'mock') {
           config.providerId = ''; config.providerName = ''; config.model = ''; config.endpoint = ''; config.apiKey = '';
         }
-        return { ...current, ...saved, llmConfig: config };
+        return { ...current, ...saved, llmConfig: config,
+          openCompactCardsMaximized: typeof saved?.openCompactCardsMaximized === 'boolean' ? saved.openCompactCardsMaximized : current.openCompactCardsMaximized,
+        };
       },
       onRehydrateStorage: () => (state) => {
         // Apply theme on app load

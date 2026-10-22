@@ -31,6 +31,8 @@ import type { ChatNode } from '../../types/flow';
 import { useCanvasBoxSelection } from '../../hooks/useCanvasBoxSelection';
 import { useCanvasNodeSelection } from '../../hooks/useCanvasNodeSelection';
 import { deferConversationCommand } from '../../services/storage/runtime';
+import { isAndroid } from '../../services/platform';
+import { useAndroidKeyboardAvoidance } from '../../hooks/useAndroidKeyboardAvoidance';
 
 const nodeTypes: NodeTypes = {
   chat: ChatNodeComponent,
@@ -47,7 +49,9 @@ function SelectionHandler({ onSelectionChange }: { onSelectionChange: (params: O
 
 export function Canvas() {
   const { t } = useTranslation();
+  const android = isAndroid();
   const { setCenter, getZoom, setViewport, viewportInitialized } = useReactFlow();
+  const { onMoveStart: keyboardMoveStart, shouldSaveViewport } = useAndroidKeyboardAvoidance();
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   // 只在画布就绪或工作区切换时恢复，不能在每次保存视角后再次触发定位。
   useEffect(() => {
@@ -56,9 +60,10 @@ export function Canvas() {
     }
   }, [workspaceId, viewportInitialized, setViewport]);
   const saveViewport = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+    if (!shouldSaveViewport()) return;
     const store = useWorkspaceStore.getState();
     if (store.activeWorkspaceId) store.saveViewport(store.activeWorkspaceId, viewport);
-  }, []);
+  }, [shouldSaveViewport]);
   const [referenceStatus, setReferenceStatus] = useState('');
   const [referenceBusy, setReferenceBusy] = useState(false);
   useEffect(() => {
@@ -72,21 +77,26 @@ export function Canvas() {
   }, [setCenter, getZoom]);
   const nodes = useFlowStore((s) => s.nodes);
   // 外层节点也必须缩小；只改内部卡片会留下旧尺寸和悬空锚点。
-  const displayNodes = useMemo(() => nodes.map((node) => node.data.collapsed || node.data.minimized
-    ? { ...node, ...COMPACT_NODE_SIZE, style: { ...node.style, ...COMPACT_NODE_SIZE } }
-    : node), [nodes]);
+  const displayNodes = useMemo(() => nodes.map((node) => {
+    const displayed = node.data.collapsed || node.data.minimized
+      ? { ...node, ...COMPACT_NODE_SIZE, style: { ...node.style, ...COMPACT_NODE_SIZE } }
+      : node;
+    return android && displayed.selected ? { ...displayed, selected: false } : displayed;
+  }), [nodes, android]);
   const edges = useFlowStore((s) => s.edges);
   const onNodesChange = useFlowStore((s) => s.onNodesChange);
   const onEdgesChange = useFlowStore((s) => s.onEdgesChange);
   const showMinimap = useSettingsStore((s) => s.showMinimap);
   const [selectedNodes, setSelectedNodes] = useState<ChatNode[]>([]);
   const [spacePressed, setSpacePressed] = useState(false);
-  const { canvasRef, onPointerDownCapture, startSelection, endSelection } = useCanvasBoxSelection(spacePressed);
+  const { canvasRef, onPointerDownCapture, startSelection, endSelection } = useCanvasBoxSelection(android || spacePressed);
   const { onPointerDownCapture: selectNodeOnPointerDown, onClickCapture: selectNodeOnClick } = useCanvasNodeSelection();
   const handleCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    // 安卓取消选区操作，空白处滑动交给画布平移；PC 保留原来的选择处理。
+    if (android) return;
     selectNodeOnPointerDown(event);
     onPointerDownCapture(event);
-  }, [selectNodeOnPointerDown, onPointerDownCapture]);
+  }, [android, selectNodeOnPointerDown, onPointerDownCapture]);
 
   // Listen for space key to toggle pan mode
   useEffect(() => {
@@ -307,7 +317,7 @@ export function Canvas() {
   return (
     <div className="w-full h-full flex flex-col">
       <WorkspaceSelector />
-      <div className="flex-1 relative" ref={canvasRef} onPointerDownCapture={handleCanvasPointerDown} onClickCapture={selectNodeOnClick}>
+      <div className="flex-1 relative" ref={canvasRef} onPointerDownCapture={handleCanvasPointerDown} onClickCapture={android ? undefined : selectNodeOnClick}>
         {referenceStatus && <div role={referenceBusy ? "status" : "alert"} className="absolute bottom-4 left-1/2 z-50 max-w-lg rounded-lg border border-border bg-surface-900 px-4 py-2 text-sm text-text-secondary">{referenceStatus}<button className="ml-3" onClick={() => setReferenceStatus('')}>关闭</button></div>}
       <ReactFlow
           nodes={displayNodes}
@@ -323,25 +333,28 @@ export function Canvas() {
           zoomOnDoubleClick={false}
           fitView={false}
           onMoveEnd={saveViewport}
+          onMoveStart={keyboardMoveStart}
           minZoom={0.1}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
           deleteKeyCode={null}
-          selectionKeyCode="Shift"
+          selectionKeyCode={android ? null : 'Shift'}
+          multiSelectionKeyCode={android ? null : undefined}
           selectionMode={SelectionMode.Partial}
-          selectionOnDrag={!spacePressed}
+          selectionOnDrag={!android && !spacePressed}
           onSelectionStart={startSelection}
           onSelectionEnd={endSelection}
-          // 中键随时平移画布；按住空格时也允许左键平移。
-          panOnDrag={spacePressed ? [0, 1] : [1]}
+          // 安卓直接拖动画布；PC 仍用中键或空格加左键平移。
+          panOnDrag={android ? true : spacePressed ? [0, 1] : [1]}
           panOnScroll={spacePressed}
           nodesDraggable={!spacePressed}
-          elementsSelectable={true}
+          elementsSelectable={!android}
+          selectNodesOnDrag={android ? false : undefined}
           elevateNodesOnSelect={false}
           onNodeClick={handleActivateNode}
           onNodeDragStart={handleActivateNode}
         >
-          <SelectionHandler onSelectionChange={handleSelectionChange} />
+          {!android && <SelectionHandler onSelectionChange={handleSelectionChange} />}
           <Background
             variant={BackgroundVariant.Dots}
             gap={20}
@@ -361,7 +374,7 @@ export function Canvas() {
         <CanvasControls />
         <SettingsPanel />
         <WelcomePopup />
-        {selectedNodes.length >= 2 && (
+        {!android && selectedNodes.length >= 2 && (
           <MergeSelectionPopup
             topics={selectedTopics}
             onMerge={handleMerge}

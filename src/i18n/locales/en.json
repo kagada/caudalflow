@@ -71,6 +71,8 @@
     "tokenDelay": "Token Delay (ms)",
     "tokenDelayDescription": "Simulated delay between tokens for development mode.",
     "display": "Display",
+    "openCompactCardsMaximized": "Open compact cards maximized",
+    "openCompactCardsMaximizedDescription": "Go straight to the large reading view when expanding or double-clicking a compact card.",
     "showSystemPrompts": "Show system prompts",
     "showSystemPromptsDescription": "Show system prompt messages in conversations.",
     "apiKeyConfigured": "API key is configured on the server (apps/agent/.env)."
@@ -82,6 +84,7 @@
       "newNodeDescription": "Double-click on canvas or press + button",
       "panCanvas": "Pan canvas",
       "panCanvasDescription": "Click & drag on empty canvas",
+      "panCanvasTouchDescription": "Swipe with one finger on empty canvas; pinch with two fingers to zoom",
       "selectText": "Select text",
       "selectTextDescription": "Highlight text in a conversation, then copy or click Branch to explore",
       "branchFromText": "Branch from text",
@@ -110,6 +113,11 @@
   "workspace": {
     "defaultName": "Workspace",
     "newWorkspace": "New Workspace",
+    "name": "Workspace name",
+    "namePlaceholder": "Enter a workspace name",
+    "create": "Create",
+    "creating": "Creating…",
+    "createFailed": "Could not create workspace. Please try again.",
     "renameWorkspace": "Rename workspace",
     "deleteWorkspace": "Delete workspace",
     "exportWorkspace": "Export Workspace (JSON)",

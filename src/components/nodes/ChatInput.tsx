@@ -8,6 +8,7 @@ import type { ContentReference } from '../../types/chat';
 import { readReferenceClipboard } from '../../services/referenceClipboard';
 import { ModelConfigurationError, resolveModelConfig } from '../../services/modelConfig';
 import { openModelSettings } from '../../services/modelSettings';
+import { useCancelLayer } from '../../hooks/useCancelLayer';
 
 interface ChatInputProps {
   nodeId: string;
@@ -30,6 +31,7 @@ export function ChatInput({
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const [showModelDialog, setShowModelDialog] = useState(false);
+  useCancelLayer(showModelDialog, () => setShowModelDialog(false), 13000);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -104,6 +106,7 @@ export function ChatInput({
 
   return (
     <div
+      data-chat-input={nodeId}
       className={`nowheel nodrag nopan m-3 rounded-3xl border border-border bg-surface-800 p-3 shadow-sm transition ${
         isDragging ? 'bg-surface-700' : ''
       }`}
@@ -114,7 +117,7 @@ export function ChatInput({
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
-      {showModelDialog && createPortal(<div className="nowheel nodrag nopan fixed inset-0 z-[13000] flex items-center justify-center bg-black/45 p-5" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setShowModelDialog(false); } }}>
+      {showModelDialog && createPortal(<div className="nowheel nodrag nopan fixed inset-0 z-[13000] flex items-center justify-center bg-black/45 p-5">
         <div role="alertdialog" aria-modal="true" aria-labelledby={`model-required-${nodeId}`} className="w-full max-w-sm rounded-2xl border border-border bg-surface-900 p-5 text-text-primary shadow-2xl">
           <h2 id={`model-required-${nodeId}`} className="font-semibold">未设置模型</h2>
           <p className="mt-3 text-sm text-text-secondary">请先在模型管理中配置并启用模型。</p>
