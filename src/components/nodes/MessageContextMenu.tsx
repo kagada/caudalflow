@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { ChevronRight } from 'lucide-react';
 import type { ChatMessage, ReferenceSelection } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useCancelLayer } from '../../hooks/useCancelLayer';
@@ -24,9 +25,10 @@ interface Props {
 export function MessageContextMenu({ target, busy, close, explore, revise, remove, versions, copyReference }: Props) {
   const { t } = useTranslation();
   const [dialog, setDialog] = useState<'prompt' | 'rewrite' | 'delete' | null>(null);
-  const [prompt, setPrompt] = useState(t('menu.defaultPrompt'));
+  const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
-  const [submenu, setSubmenu] = useState(false);
+  const [submenu, setSubmenu] = useState<'copy' | 'branch' | 'revise' | null>(null);
+  const submenuId = useId();
   const [copyingReference, setCopyingReference] = useState(false);
   const message = target.message;
   const text = target.kind === 'selection' ? target.text : target.message.content;
@@ -44,6 +46,20 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
     }
     menu.style.top = `${Math.max(8, Math.min(target.y, window.innerHeight - menu.getBoundingClientRect().height - 8))}px`;
   });
+  useLayoutEffect(() => {
+    const panel = ref.current?.querySelector<HTMLElement>('[data-submenu]');
+    if (!panel) return;
+    // 子菜单独立避让屏幕底部，主菜单缩短后也不能让最后一组操作越界。
+    panel.style.top = '0px';
+    // 手机放不下两列时在原菜单位置展开，并提供返回入口，避免子菜单跑到屏幕外。
+    if (window.innerWidth < 416) {
+      panel.style.right = 'auto';
+      panel.style.left = `${Math.max(8, Math.min(ref.current!.getBoundingClientRect().left, window.innerWidth - panel.getBoundingClientRect().width - 8)) - panel.parentElement!.getBoundingClientRect().left}px`;
+    }
+    const bounds = panel.getBoundingClientRect();
+    panel.style.top = `${Math.max(8 - bounds.top, Math.min(0, window.innerHeight - 8 - bounds.bottom))}px`;
+    panel.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true });
+  }, [submenu]);
   useEffect(() => {
     const outside = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) close(); };
     document.addEventListener('pointerdown', outside);
@@ -56,27 +72,59 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
     try { await navigator.clipboard.writeText(text); close(); }
     catch { setError(t('menu.copyFailed')); }
   };
-  const buttonClass = 'w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-surface-700 focus-visible:bg-surface-700 focus:outline-none disabled:opacity-40';
+  // 底色独立绘制，避免加宽左右留白时透明边框吃掉圆角。
+  const buttonClass = 'relative isolate w-full px-3 py-1.5 text-left text-[13px] leading-5 before:pointer-events-none before:absolute before:inset-x-1.5 before:inset-y-0.5 before:-z-10 before:rounded-md before:content-[\'\'] hover:before:bg-surface-700 focus-visible:before:bg-surface-700 focus:outline-none disabled:opacity-40';
+  // 安卓长按会自动选字，始终保留统一菜单；文字执行默认动作，只有独立箭头展开其他操作。
+  const splitItem = (kind: 'copy' | 'branch' | 'revise', label: string, action: () => void, disabled: boolean, children: ReactNode, arrowDisabled = disabled) => (
+    <div className="relative" onKeyDown={(event) => {
+      if (event.key === 'ArrowRight' && !arrowDisabled) {
+        event.preventDefault(); event.stopPropagation(); setSubmenu(kind);
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault(); event.stopPropagation(); setSubmenu(null);
+        event.currentTarget.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
+      }
+    }}>
+      {/* 左右底色留白保持 6px，底色圆角不受文字内边距影响。 */}
+      <div className="flex">
+        <button role="menuitem" disabled={disabled} className={`${buttonClass} min-w-0 flex-1`} onClick={action}>{label}</button>
+        <div className="flex w-8 shrink-0 border-l border-border">
+        <button role="menuitem" aria-label={t('menu.moreOptions', { action: label })} aria-haspopup="menu" aria-expanded={submenu === kind} aria-controls={submenu === kind ? `${submenuId}-${kind}` : undefined}
+          disabled={arrowDisabled} className="mx-1.5 my-0.5 flex min-w-0 flex-1 items-center justify-center rounded-md hover:bg-surface-700 focus-visible:bg-surface-700 focus:outline-none disabled:opacity-40"
+          onClick={() => setSubmenu(submenu === kind ? null : kind)}><ChevronRight size={14} aria-hidden="true" /></button>
+        </div>
+      </div>
+      {submenu === kind && <div id={`${submenuId}-${kind}`} data-submenu role="menu" aria-label={label}
+        className={`absolute top-0 z-10 max-h-[calc(100dvh-16px)] w-48 overflow-y-auto rounded-lg border border-border bg-surface-900 py-1 shadow-2xl ${target.x > window.innerWidth - 416 ? 'right-full' : 'left-full'}`}>
+        {window.innerWidth < 416 && <><button role="menuitem" className={buttonClass} onClick={(event) => {
+          setSubmenu(null);
+          event.currentTarget.closest('[data-submenu]')?.parentElement?.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
+        }}>‹ {t('menu.back')}</button><div role="separator" className="my-1 border-t border-border" /></>}
+        {children}
+      </div>}
+    </div>
+  );
   const submitPrompt = () => {
     if (!prompt.trim() || busy) return;
     perform(() => dialog === 'rewrite' && message ? revise(message.id, prompt.trim()) : explore(text, prompt.trim()));
   };
   return createPortal(
-    <div data-message-menu ref={ref} tabIndex={-1} className={`fixed z-[10000] outline-none text-text-primary ${isAndroid() && !dialog ? 'select-none' : ''} ${dialog ? 'inset-0 flex items-center justify-center bg-black/40 p-5' : 'w-64 rounded-xl border border-border bg-surface-900 p-2 shadow-2xl'}`}
+    <div data-message-menu ref={ref} tabIndex={-1} className={`fixed z-[10000] outline-none text-text-primary ${isAndroid() && !dialog ? 'select-none' : ''} ${dialog ? 'inset-0 flex items-center justify-center bg-black/40 p-5' : 'w-48 rounded-lg border border-border bg-surface-900 py-1 shadow-2xl'}`}
       onKeyDown={(event) => {
         if (dialog || !['ArrowDown', 'ArrowUp'].includes(event.key)) return;
         event.preventDefault();
-        const buttons = [...ref.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')];
+        const scope = (event.target as HTMLElement).closest('[role="menu"]') ?? ref.current!.querySelector('[role="menu"]')!;
+        const buttons = [...scope.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')].filter((button) => button.closest('[role="menu"]') === scope);
         const index = buttons.findIndex((button) => button === document.activeElement);
         buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus();
       }}
-      style={dialog ? undefined : { left: Math.max(8, Math.min(target.x, window.innerWidth - 272)), top: Math.max(8, Math.min(target.y, window.innerHeight - 440)) }}
+      style={dialog ? undefined : { left: Math.max(8, Math.min(target.x, window.innerWidth - 208)), top: Math.max(8, Math.min(target.y, window.innerHeight - 440)) }}
       onContextMenu={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => { if (!dialog) event.preventDefault(); }}>
       {dialog ? (
-        <div role="dialog" aria-modal="true" aria-label={t(dialog === 'delete' ? 'menu.delete' : 'menu.prompt')} className="w-full max-w-lg rounded-xl border border-border bg-surface-900 p-6 shadow-2xl">
-          <h2 className="mb-3 text-xl font-semibold">{t(dialog === 'delete' ? 'menu.delete' : 'menu.prompt')}</h2>
+        <div role="dialog" aria-modal="true" aria-label={t(dialog === 'delete' ? 'menu.delete' : dialog === 'rewrite' ? 'menu.rewrite' : 'menu.customPrompt')} className="w-full max-w-lg rounded-xl border border-border bg-surface-900 p-6 shadow-2xl">
+          <h2 className="mb-3 text-xl font-semibold">{t(dialog === 'delete' ? 'menu.delete' : dialog === 'rewrite' ? 'menu.rewrite' : 'menu.customPrompt')}</h2>
           <p className="mb-4 text-sm leading-6 text-text-secondary">{t(dialog === 'delete' ? 'menu.deleteHint' : dialog === 'rewrite' ? 'menu.rewriteHint' : 'menu.selectionPromptHint')}</p>
-          {dialog !== 'delete' && <textarea autoFocus aria-label={t('menu.prompt')} value={prompt} onChange={(event) => setPrompt(event.target.value)} className="nodrag nowheel w-full rounded-lg border border-border bg-surface-800 p-3 text-base leading-6" rows={5} />}
+          {dialog !== 'delete' && <textarea autoFocus aria-label={t(dialog === 'rewrite' ? 'menu.rewriteQuestion' : 'menu.prompt')} placeholder={t(dialog === 'rewrite' ? 'menu.rewritePlaceholder' : 'menu.prompt')} value={prompt} onChange={(event) => setPrompt(event.target.value)} className="nodrag nowheel w-full rounded-lg border border-border bg-surface-800 p-3 text-base leading-6" rows={5} />}
           <div className="mt-5 flex justify-end gap-3">
             <button className="rounded-lg px-4 py-2 hover:bg-surface-700" onClick={close}>{t('common.cancel')}</button>
             <button disabled={busy || (dialog !== 'delete' && !prompt.trim())} className="rounded-lg bg-accent-600 px-4 py-2 text-white disabled:opacity-40" onClick={() => dialog === 'delete' && message ? perform(() => remove(message.id)) : submitPrompt()}>{t(dialog === 'delete' ? 'menu.delete' : 'menu.run')}</button>
@@ -84,36 +132,26 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
         </div>
       ) : (
         <div role="menu" aria-label={t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}>
-          <div className="px-3 py-2 text-xs text-text-muted">{t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}</div>
-          <button role="menuitem" className={buttonClass} onClick={copy}>{t(target.kind === 'selection' ? 'menu.copySelection' : 'menu.copyMessage')}</button>
-          {copyReference && <button role="menuitem" disabled={busy || copyingReference} className={buttonClass} onClick={async () => {
+          <div className="px-3 py-1 text-[11px] text-text-muted">{t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}</div>
+          {splitItem('copy', t(target.kind === 'selection' ? 'menu.copySelection' : 'menu.copyMessage'), copy, false,
+            copyReference && <button role="menuitem" disabled={busy || copyingReference} className={buttonClass} onClick={async () => {
             setCopyingReference(true); setError('');
             try { await copyReference(); close(); } catch (failure) { setError(String(failure)); } finally { setCopyingReference(false); }
-          }}>{copyingReference ? '正在整理引用…' : '复制引用'}</button>}
-          <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(text, ''))}>{t(target.kind === 'selection' ? 'menu.branch' : 'menu.branchMessage')}</button>
-          <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(text, t('menu.summaryPrompt')))}>{t(target.kind === 'selection' ? 'menu.summarize' : 'menu.summarizeMessage')}</button>
-          <div className="relative" onMouseEnter={() => setSubmenu(true)} onMouseLeave={() => setSubmenu(false)}>
-            <button role="menuitem" aria-haspopup="menu" aria-expanded={submenu} disabled={busy} className={`${buttonClass} flex justify-between`} onClick={() => setSubmenu(true)} onKeyDown={(event) => { if (event.key === 'ArrowRight') setSubmenu(true); }}>{t(target.kind === 'selection' ? 'menu.askPrompt' : 'menu.askPromptMessage')}<span>›</span></button>
-            {submenu && <div role="menu" aria-label={t('menu.promptPresets')} className={`absolute top-0 w-64 rounded-xl border border-border bg-surface-900 p-2 shadow-2xl ${target.x > window.innerWidth - 550 ? 'right-full' : 'left-full'}`}>
-              <div className="max-h-[50vh] overflow-y-auto">
-                {!presets.length && <p className="px-3 py-2 text-sm text-text-muted">{t('menu.noPrompts')}</p>}
+          }}>{copyingReference ? t('menu.copyingReference') : t('menu.copyReference')}</button>, !copyReference)}
+          {splitItem('branch', t(target.kind === 'selection' ? 'menu.branch' : 'menu.branchMessage'), () => perform(() => explore(text, '')), busy, <>
+                <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(text, t('menu.summaryPrompt')))}>{t('menu.summaryAction')}</button>
                 {presets.map((preset) => <button key={preset.id} role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(text, preset.content))}>{preset.name}</button>)}
-                <button role="menuitem" className={buttonClass} onClick={() => { setSubmenu(false); setDialog('prompt'); }}>{t('menu.customPrompt')}</button>
-              </div>
-              <div className="mt-2 border-t border-border pt-2"><button role="menuitem" className={buttonClass} onClick={() => perform(() => useSettingsStore.getState().setShowPromptSettings(true))}>{t('menu.managePrompts')}</button></div>
-            </div>}
-          </div>
-          {message && versions && <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => versions(message.id))}>文档版本</button>}
-          {/* 跨回答选区仍显示重答和重构，让用户直接知道不可用的原因。 */}
-          <button role="menuitem" disabled={busy || !message || message.role === 'system'} className={buttonClass} onClick={() => message && perform(() => revise(message.id))}>
-            {t('menu.regenerate')}{!message && <span className="ml-1 text-xs">{t('menu.multipleAnswersUnavailable')}</span>}
-          </button>
-          {(!message || message.role === 'assistant') && <button role="menuitem" disabled={busy || !message} className={buttonClass} onClick={() => setDialog('rewrite')}>
-            {t('menu.rewrite')}{!message && <span className="ml-1 text-xs">{t('menu.multipleAnswersUnavailable')}</span>}
-          </button>}
-          {message && <>
-            <button role="menuitem" disabled={busy} className={`${buttonClass} text-red-400`} onClick={() => setDialog('delete')}>{t('menu.delete')}</button>
-          </>}
+                <div role="separator" className="my-1 border-t border-border" />
+                <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => { setSubmenu(null); setPrompt(''); setDialog('prompt'); }}>{t('menu.customPrompt')}</button>
+                <button role="menuitem" className={buttonClass} onClick={() => perform(() => useSettingsStore.getState().setShowPromptSettings(true))}>{t('menu.managePrompts')}</button>
+          </>)}
+          <div role="separator" className="my-1 border-t border-border" />
+          {splitItem('revise', t('menu.regenerate'), () => message && perform(() => revise(message.id)), busy || !message || message.role === 'system', <>
+            {(!message || message.role === 'assistant') && <button role="menuitem" disabled={busy || !message} className={buttonClass} onClick={() => { setSubmenu(null); setPrompt(''); setDialog('rewrite'); }}>{t('menu.rewrite')}</button>}
+            {message && versions && <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => versions(message.id))}>{t('menu.versions')}</button>}
+          </>, busy || !message || (message.role !== 'assistant' && !versions))}
+          <button role="menuitem" disabled={busy || !message} className={`${buttonClass} text-red-400`} onClick={() => { setSubmenu(null); setDialog('delete'); }}>{t('menu.delete')}</button>
+          {!message && <p className="px-3 py-2 text-xs text-text-muted">{t('menu.multipleAnswersUnavailable')}</p>}
           {busy && <p className="px-3 py-2 text-xs text-text-muted">{t('menu.busy')}</p>}
           {error && <p role="alert" className="px-3 py-2 text-xs text-red-400">{error}</p>}
         </div>

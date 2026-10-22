@@ -176,10 +176,10 @@ describe('canvas selection keeps conversation content cached', () => {
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
     act(() => first.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
     expect(regenerate()?.disabled).toBe(true);
-    expect(regenerate()?.textContent).toContain('（选中多个回答时不可用）');
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('选区跨多条消息，无法确定要重答或删除哪一条。');
     act(() => regenerate()!.click());
     expect(revise).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="menu"]')?.textContent).toContain('用 prompt 重构回答');
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="重新回答这个问题的更多选项"]')?.disabled).toBe(true);
     window.getSelection()!.removeAllRanges();
   });
 

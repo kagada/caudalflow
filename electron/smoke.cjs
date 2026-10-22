@@ -122,14 +122,14 @@ async function runSmokeTest(window, app) {
     })()`);
     assert.equal(compact.width, 260); assert.equal(compact.height, 148);
     assert(compact.incomingError < 2 && compact.outgoingError < 2, JSON.stringify(compact));
-    // 选区跨越提问和回复时只能出现选区菜单；清除选区后才出现消息操作。
+    // 跨消息选区仍保留统一菜单，重答和删除需禁用，单条消息则可用。
     const menus = await window.webContents.executeJavaScript(`(async () => {
       const messages = document.querySelectorAll('[data-message-id]');
       const range = document.createRange(); range.setStart(messages[0], 0); range.setEnd(messages[1], messages[1].childNodes.length);
       window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
       messages[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 250 }));
       await new Promise(resolve => setTimeout(resolve, 50));
-      const selectionOnly = document.querySelector('[role="menu"]').innerText.includes('从选区分支追问') && !document.querySelector('[role="menu"]').innerText.includes('删除这条消息');
+      const selectionOnly = document.querySelector('[role="menu"]').innerText.includes('从选区分支追问') && [...document.querySelectorAll('[role="menuitem"]')].find(button => button.textContent === '删除这条消息')?.disabled;
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); window.getSelection().removeAllRanges();
       await new Promise(resolve => setTimeout(resolve, 50));
       messages[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 250 }));
@@ -239,14 +239,14 @@ async function runSmokeTest(window, app) {
         window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
         message.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 100, clientY: 250 }));
         await new Promise(resolve => setTimeout(resolve, 50));
-        [...document.querySelectorAll('[role="menuitem"]')].find(button => button.textContent.includes('用 prompt 追问选区')).click();
+        document.querySelector('[aria-label="从选区分支追问的更多选项"]').click();
         await new Promise(resolve => setTimeout(resolve, 50));
       };
       await openMenu();
-      const noAutomaticCopyFocus = document.activeElement.hasAttribute('data-message-menu');
-      [...document.querySelectorAll('[role="menuitem"]')].find(button => button.textContent === '管理 prompt').click();
+      const noAutomaticCopyFocus = document.activeElement.textContent !== '复制选中文字';
+      [...document.querySelectorAll('[role="menuitem"]')].find(button => button.textContent === '管理快捷指令…').click();
       await new Promise(resolve => setTimeout(resolve, 50));
-      const panel = document.querySelector('[role="dialog"][aria-label="管理 prompt"]');
+      const panel = document.querySelector('[role="dialog"][aria-label="管理快捷指令…"]');
       const name = panel.querySelector('input');
       const content = panel.querySelector('textarea');
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(name, '桌面预设验证');
@@ -261,7 +261,7 @@ async function runSmokeTest(window, app) {
       await new Promise(resolve => setTimeout(resolve, 50));
       await openMenu();
       const presetInMenu = [...document.querySelectorAll('[role="menuitem"]')].some(button => button.textContent === '桌面预设验证');
-      const managerAlwaysPresent = [...document.querySelectorAll('[role="menuitem"]')].some(button => button.textContent === '管理 prompt');
+      const managerAlwaysPresent = [...document.querySelectorAll('[role="menuitem"]')].some(button => button.textContent === '管理快捷指令…');
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       return { noAutomaticCopyFocus, persisted, presetInMenu, managerAlwaysPresent };
     })()`);

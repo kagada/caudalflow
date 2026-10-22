@@ -109,7 +109,9 @@ async function runSmokeTest(window, app, storage) {
     assert.deepEqual(chatRequests[1].messages, chatRequests[0].messages);
     await waitFor(window, usageIs(answerId, 210));
     await window.webContents.executeJavaScript(context);
-    await window.webContents.executeJavaScript("[...document.querySelectorAll('[role=menu] button')].find(button => button.textContent==='文档版本').click()");
+    await window.webContents.executeJavaScript("document.querySelector('[aria-label=\"重新回答这个问题的更多选项\"]').click()");
+    await waitFor(window, "!!document.querySelector('[data-submenu]')");
+    await window.webContents.executeJavaScript("[...document.querySelectorAll('[data-submenu] button')].find(button => button.textContent==='历史版本…').click()");
     await waitFor(window, "!!document.querySelector('[aria-label=\"文档版本\"] button') && [...document.querySelectorAll('[aria-label=\"文档版本\"] button')].some(button => button.textContent.includes('SQLite 流式回复成功') && !button.textContent.includes('重答'))");
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[aria-label=\"文档版本\"] button')].find(button => button.textContent.includes('SQLite 流式回复成功') && !button.textContent.includes('重答')).click()");
     await waitFor(window, "!document.querySelector('[aria-label=\"文档版本\"]') && !document.body.innerText.includes('回复成功·重答')");
