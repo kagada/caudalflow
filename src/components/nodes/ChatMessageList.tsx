@@ -65,7 +65,7 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
         ? allMessages.find((item) => item.id === start.getAttribute('data-message-id')) : undefined;
       const anchor = selectionMenuAnchor(selected);
       setMenu({ kind: 'selection', text, message, sources: selectionDocuments(containerRef.current!, range),
-        x: anchor?.x ?? event.clientX, y: anchor?.y ?? event.clientY });
+        x: anchor?.x ?? event.clientX, y: anchor?.y ?? event.clientY, selectionBounds: anchor?.selectionBounds });
       return;
     }
     // 空白处没有选区时也不弹消息菜单，保持安卓“仅正文响应长按”的范围。

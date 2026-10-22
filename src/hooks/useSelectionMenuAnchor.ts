@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { isAndroid } from '../services/platform';
+import type { SelectionEndpointRect } from '../utils/selectionMenuPosition';
 
 type Endpoint = 'start' | 'end';
 interface Boundaries {
@@ -81,6 +82,18 @@ export function useSelectionMenuAnchor(containerRef: React.RefObject<HTMLElement
       rect = rects?.[endpoint.current === 'start' ? 0 : rects.length - 1];
     }
     if (!rect) return;
-    return { x: endpoint.current === 'end' && !caretRect?.height ? rect.right : rect.left, y: rect.bottom + 8 };
+    const point = { x: endpoint.current === 'end' && !caretRect?.height ? rect.right : rect.left, y: rect.bottom + 8 };
+    if (!isAndroid()) return { ...point, selectionBounds: undefined };
+    // 把两个端点同时交给菜单定位，不能避开刚拖动的一端却挡住另一端。
+    const endpointRect = (side: Endpoint): SelectionEndpointRect | undefined => {
+      const boundary = range.cloneRange(); boundary.collapse(side === 'start');
+      const caretBox = boundary.getBoundingClientRect?.();
+      const parts = !caretBox?.height ? range.getClientRects?.() : undefined;
+      const box = caretBox?.height ? caretBox : parts?.[side === 'start' ? 0 : parts.length - 1];
+      if (!box) return;
+      return { x: !caretBox?.height && side === 'end' ? box.right : box.left, top: box.top, bottom: box.bottom };
+    };
+    const start = endpointRect('start'), end = endpointRect('end');
+    return { ...point, selectionBounds: start && end ? { start, end, active: endpoint.current } : undefined };
   }, [read]);
 }

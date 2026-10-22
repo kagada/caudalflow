@@ -5,8 +5,9 @@ import type { ChatMessage, ReferenceSelection } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useCancelLayer } from '../../hooks/useCancelLayer';
 import { isAndroid } from '../../services/platform';
+import { selectionMenuPosition, type SelectionMenuBounds } from '../../utils/selectionMenuPosition';
 
-export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[] } & ({ kind: 'selection'; text: string; message?: ChatMessage } | { kind: 'message'; message: ChatMessage });
+export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[]; selectionBounds?: SelectionMenuBounds } & ({ kind: 'selection'; text: string; message?: ChatMessage } | { kind: 'message'; message: ChatMessage });
 
 interface Props {
   target: MenuTarget;
@@ -36,6 +37,11 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
     if (dialog || !ref.current) return;
     // 菜单项数量会变化，按实际高度限制位置，避免用固定高度把底部操作挤出屏幕。
     const menu = ref.current;
+    if (isAndroid() && target.kind === 'selection' && target.selectionBounds) {
+      const point = selectionMenuPosition(target.selectionBounds, menu.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight });
+      menu.style.left = `${point.x}px`; menu.style.top = `${point.y}px`;
+      return;
+    }
     menu.style.top = `${Math.max(8, Math.min(target.y, window.innerHeight - menu.getBoundingClientRect().height - 8))}px`;
   });
   useEffect(() => {
