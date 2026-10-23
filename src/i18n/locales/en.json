@@ -119,6 +119,16 @@
     "exploreCanvas": "Explore the canvas"
   },
   "workspace": {
+    "exportFormats": "More export formats",
+    "markdownFormat": "Markdown format",
+    "openShort": "Open",
+    "undoShort": "Undo",
+    "redoShort": "Redo",
+    "historyShort": "History",
+    "exportMarkdownShort": "Export Markdown",
+    "exportShort": "Export",
+    "importShort": "Import",
+
     "defaultName": "Workspace",
     "newWorkspace": "New Workspace",
     "name": "Workspace name",

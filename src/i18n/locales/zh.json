@@ -119,6 +119,16 @@
     "exploreCanvas": "先看看画布"
   },
   "workspace": {
+    "exportFormats": "导出的更多格式",
+    "markdownFormat": "Markdown 格式",
+    "openShort": "打开",
+    "undoShort": "撤销",
+    "redoShort": "重做",
+    "historyShort": "历史",
+    "exportMarkdownShort": "导出 Markdown",
+    "exportShort": "导出",
+    "importShort": "导入",
+
     "defaultName": "工作区",
     "newWorkspace": "新建工作区",
     "name": "工作区名称",

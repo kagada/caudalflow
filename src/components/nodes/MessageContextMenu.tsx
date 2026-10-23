@@ -85,13 +85,13 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
         event.currentTarget.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
       }
     }}>
-      {/* 左右底色留白保持 6px，底色圆角不受文字内边距影响。 */}
+      {/* 竖线独立缩短，箭头底色固定为正方形，不再随行高拉成长条。 */}
       <div className="flex">
         <button role="menuitem" disabled={disabled} className={`${buttonClass} min-w-0 flex-1`} onClick={action}>{label}</button>
-        <div className="flex w-8 shrink-0 border-l border-border">
-        <button role="menuitem" aria-label={t('menu.moreOptions', { action: label })} aria-haspopup="menu" aria-expanded={submenu === kind} aria-controls={submenu === kind ? `${submenuId}-${kind}` : undefined}
-          disabled={arrowDisabled} className="mx-1.5 my-0.5 flex min-w-0 flex-1 items-center justify-center rounded-md hover:bg-surface-700 focus-visible:bg-surface-700 focus:outline-none disabled:opacity-40"
-          onClick={() => setSubmenu(submenu === kind ? null : kind)}><ChevronRight size={14} aria-hidden="true" /></button>
+        <div className="relative flex w-10 shrink-0 items-center justify-center before:absolute before:inset-y-2 before:left-0 before:border-l before:border-border before:content-['']">
+          <button role="menuitem" aria-label={t('menu.moreOptions', { action: label })} aria-haspopup="menu" aria-expanded={submenu === kind} aria-controls={submenu === kind ? `${submenuId}-${kind}` : undefined}
+            disabled={arrowDisabled} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-surface-700 focus-visible:bg-surface-700 focus:outline-none disabled:opacity-40"
+            onClick={() => setSubmenu(submenu === kind ? null : kind)}><ChevronRight size={14} aria-hidden="true" /></button>
         </div>
       </div>
       {submenu === kind && <div id={`${submenuId}-${kind}`} data-submenu role="menu" aria-label={label}

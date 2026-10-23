@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Plus, Trash2, Download, Upload, Check, Pencil, Github, FileText } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, Upload, Check, Pencil } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useFlowStore } from '../../stores/flowStore';
 import { useChatStore } from '../../stores/chatStore';
@@ -12,6 +12,7 @@ import { isAndroid } from '../../services/platform';
 import { StorageControls } from './StorageControls';
 import { useCancelLayer } from '../../hooks/useCancelLayer';
 import { NewWorkspaceDialog } from './NewWorkspaceDialog';
+import { WorkspaceExportButton } from './WorkspaceExportButton';
 
 export function WorkspaceSelector() {
   const { t } = useTranslation();
@@ -180,9 +181,9 @@ export function WorkspaceSelector() {
   );
 
   return (
-    <><div className="h-9 bg-surface-950 border-b border-border flex items-center gap-2 px-3 shrink-0 select-none">
+    <><div className="min-h-9 bg-surface-950 border-b border-border flex flex-wrap items-center gap-x-2 px-3 shrink-0 select-none">
       {/* Left: workspace name + dropdown */}
-      {/* 窄屏只压缩名称，工具栏与名称保持同一行并靠右。 */}
+      {/* 工具栏加上文字后允许窄屏换行，名称和按钮都不挤出屏幕。 */}
       <div className="relative min-w-0" ref={dropdownRef}>
         {editing ? (
           <input
@@ -259,39 +260,18 @@ export function WorkspaceSelector() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Right: export + import + github */}
-      <div className="flex shrink-0 items-center gap-1">
+      {/* 图标旁直接标明操作，避免把导入导出误认为相反方向。 */}
+      <div className="ml-auto flex max-w-full shrink-0 items-center gap-1 overflow-x-auto">
         {isSqliteStorage() && <StorageControls />}
-        <button
-          onClick={handleExportMarkdown}
-          className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
-          title={t('workspace.exportMarkdown')}
-        >
-          <FileText size={15} />
-        </button>
-        <button
-          onClick={exportWorkspace}
-          className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
-          title={t('workspace.exportWorkspace')}
-        >
-          <Download size={15} />
-        </button>
+        <WorkspaceExportButton onExport={exportWorkspace} onExportMarkdown={handleExportMarkdown} />
         <button
           onClick={handleImport}
-          className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
+          className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-border bg-surface-900 px-2 text-[11px] text-text-muted hover:bg-surface-800 hover:text-text-primary transition-colors"
           title={t('workspace.importWorkspace')}
         >
           <Upload size={15} />
+          <span>{t('workspace.importShort')}</span>
         </button>
-        <a
-          href="https://github.com/yancongya/caudalflow"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-1.5 text-text-muted hover:text-text-primary transition-colors"
-          title={t('workspace.github')}
-        >
-          <Github size={15} />
-        </a>
         <input
           ref={fileRef}
           type="file"
