@@ -33,6 +33,8 @@ export const ChatMessage = memo(function ChatMessage({
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const currentUsage = answerUsage(message, isStreaming);
+  const date = Number.isFinite(message.timestamp) ? new Date(message.timestamp) : null;
+  const timeLabel = isUser ? '发送时间' : '回答开始时间';
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const resetTimeoutRef = useRef<number | null>(null);
@@ -209,19 +211,10 @@ export const ChatMessage = memo(function ChatMessage({
       <div
         className={`relative group text-[16px] leading-7 ${
           isUser
-            ? 'bg-accent-600 text-white rounded-2xl rounded-br-md px-5 py-3 pr-9 max-w-[90%] inline-block'
-            : 'text-text-primary prose-invert max-w-none pr-8'
+            ? 'bg-accent-600 text-white rounded-2xl rounded-br-md px-5 py-3 max-w-[90%] inline-block'
+            : 'text-text-primary prose-invert max-w-none'
         }`}
       >
-        <button
-          type="button"
-          aria-label={copied ? 'Copied message' : 'Copy message'}
-          data-state={copied ? 'copied' : 'idle'}
-          onClick={handleCopy}
-          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted hover:text-text-primary"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
         <div data-message-content className="select-text">
         {isUser ? (
             <div className="flex flex-col gap-2">
@@ -258,8 +251,21 @@ export const ChatMessage = memo(function ChatMessage({
           </>
         )}
         </div>
-        {/* 用量属于回答请求，统一放在回答下方。 */}
-        {!isUser && <UsageStatistics usage={currentUsage ? [currentUsage] : undefined} label="本次回答" showEmpty />}
+        {/* 直接展示已有时间，辅助信息留在正文外，避免混入跨消息引用。 */}
+        <div data-message-metadata className="flex flex-wrap items-center justify-between gap-x-4">
+          {!isUser && <UsageStatistics usage={currentUsage ? [currentUsage] : undefined} label="本次回答" showEmpty />}
+          {/* 复制入口与时间固定放在一起，触屏和鼠标操作都能直接找到。 */}
+          <div className={`ml-auto my-2 flex items-center gap-2 select-none whitespace-nowrap text-xs leading-5 ${isUser ? 'text-white/70' : 'text-text-muted'}`}>
+            {date && <time dateTime={date.toISOString()} title={timeLabel} aria-label={timeLabel}>
+              {date.toLocaleString('sv-SE', { hour12: false })}
+            </time>}
+            <button type="button" aria-label={copied ? 'Copied message' : 'Copy message'}
+              title={copied ? '已复制' : t('menu.copyMessage')} data-state={copied ? 'copied' : 'idle'}
+              onClick={handleCopy} className={`nodrag nopan inline-flex shrink-0 items-center justify-center rounded p-1 ${isUser ? 'hover:text-white' : 'hover:text-text-primary'}`}>
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          </div>
+        </div>
       </div>
 
       {lightbox && (
