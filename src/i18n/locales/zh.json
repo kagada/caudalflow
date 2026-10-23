@@ -4,6 +4,7 @@
     "rewriteQuestion": "你希望这条回答怎么改？",
     "rewritePlaceholder": "例如：短一点，保留例子。",
     "copyReference": "复制引用",
+    "copyMarkdown": "复制 Markdown 原文",
     "copyingReference": "正在整理引用…",
     "summaryAction": "总结（新分支）",
     "versions": "历史版本…",

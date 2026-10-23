@@ -183,6 +183,98 @@ describe('canvas selection keeps conversation content cached', () => {
     window.getSelection()!.removeAllRanges();
   });
 
+  it('copies raw Markdown for a whole message or a cross-message selection without metadata', async () => {
+    await act(async () => { await i18n.changeLanguage('zh'); });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const firstText = '开头 **重点** 与 [链接](https://example.com) 结尾';
+    const secondText = '另一条 `代码` 尾部';
+    act(() => {
+      useChatStore.getState().setConversationMessages('a', [
+        { id: 'm', role: 'assistant', content: firstText, timestamp: 1000 },
+        { id: 'n', role: 'user', content: secondText, timestamp: 2000 },
+      ]);
+      root.render(<ChatMessageList nodeId="a" onExplore={explore} />);
+    });
+    const first = container.querySelector('[data-message-id="m"] [data-message-content]')!;
+    const second = container.querySelector('[data-message-id="n"] [data-message-content]')!;
+    const copyMarkdown = async () => {
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label$="的更多选项"][aria-label^="复制"]')!.click());
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === '复制 Markdown 原文')!.click());
+    };
+    window.getSelection()!.removeAllRanges();
+    act(() => first.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    await copyMarkdown();
+    expect(writeText).toHaveBeenLastCalledWith(firstText);
+
+    const start = document.createTreeWalker(first, NodeFilter.SHOW_TEXT).nextNode()!;
+    const end = document.createTreeWalker(second, NodeFilter.SHOW_TEXT).nextNode()!;
+    const range = document.createRange();
+    range.setStart(start, 1); range.setEnd(end, secondText.length - 1);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => first.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    await copyMarkdown();
+    expect(writeText).toHaveBeenLastCalledWith(`${firstText.slice(1)}\n\n${secondText.slice(0, -1)}`);
+    window.getSelection()!.removeAllRanges();
+  });
+
+  it.each([
+    ['突然', 0, '突然', 2, '**突然**'],
+    ['突然', 0, '想', 1, '**突然**想'],
+    ['我', 0, '突然', 2, '我**突然**'],
+    ['我', 0, '想', 1, '我**突然**想'],
+    ['突然', 0, '突然', 1, '**突**'],
+  ])('copies balanced formatting from %s to %s without extending the selected text', async (first, from, last, to, expected) => {
+    await act(async () => { await i18n.changeLanguage('zh'); });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    act(() => {
+      useChatStore.getState().setConversationMessages('a', [{ id: 'm', role: 'assistant', content: '我**突然**想', timestamp: 1000 }]);
+      root.render(<ChatMessageList nodeId="a" onExplore={explore} />);
+    });
+    const content = container.querySelector('[data-message-content]')!;
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    const leaves: Node[] = [];
+    for (let leaf = walker.nextNode(); leaf; leaf = walker.nextNode()) leaves.push(leaf);
+    const range = document.createRange();
+    range.setStart(leaves.find((leaf) => leaf.textContent === first)!, from);
+    range.setEnd(leaves.find((leaf) => leaf.textContent === last)!, to);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => content.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="复制选中文字的更多选项"]')!.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === '复制 Markdown 原文')!.click());
+    expect(writeText).toHaveBeenCalledWith(expected);
+    window.getSelection()!.removeAllRanges();
+  });
+
+  it.each([
+    ['## 摘要（选中文字）', '摘要（选中文字）', '## 摘要（选中文字）'],
+    ['- 动作：通宵修理；游丝逐根理顺；齿轮擦洗', '动作：通宵修理；游丝逐根理顺；齿轮擦洗', '- 动作：通宵修理；游丝逐根理顺；齿轮擦洗'],
+    ['1. 动作\n2. 结果', '结果', '2. 结果'],
+    ['- [x] 完成事项', '完成事项', '- [x] 完成事项'],
+  ])('copies block markers when selecting only rendered text in %s', async (markdown, selected, expected) => {
+    await act(async () => { await i18n.changeLanguage('zh'); });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    act(() => {
+      useChatStore.getState().setConversationMessages('a', [{ id: 'm', role: 'assistant', content: markdown, timestamp: 1000 }]);
+      root.render(<ChatMessageList nodeId="a" onExplore={explore} />);
+    });
+    const content = container.querySelector('[data-message-content]')!;
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    let text: Node | null;
+    do { text = walker.nextNode(); } while (text && !text.textContent?.includes(selected));
+    const range = document.createRange();
+    const start = text!.textContent!.indexOf(selected);
+    range.setStart(text!, start); range.setEnd(text!, start + selected.length);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    act(() => content.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="复制选中文字的更多选项"]')!.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === '复制 Markdown 原文')!.click());
+    expect(writeText).toHaveBeenCalledWith(expected);
+    window.getSelection()!.removeAllRanges();
+  });
+
   it('does not parse Markdown on selection, deselection, or an unrelated branch change', () => {
     const before = container.innerHTML;
     act(() => {

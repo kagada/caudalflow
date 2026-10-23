@@ -20,6 +20,7 @@ import { UsageStatistics } from './UsageStatistics';
 import { isSqliteStorage } from '../../services/storage/client';
 import { isAndroid } from '../../services/platform';
 import { buildBacklinks, selectBacklinkInputs } from '../../utils/referenceBacklinks';
+import { markdownSelection } from '../../utils/markdownSelection';
 
 interface ChatMessageListProps {
   nodeId: string;
@@ -64,7 +65,14 @@ export const ChatMessageList = memo(function ChatMessageList({ nodeId, onExplore
       const message = start && start === end && containerRef.current!.contains(start)
         ? allMessages.find((item) => item.id === start.getAttribute('data-message-id')) : undefined;
       const anchor = selectionMenuAnchor(selected);
-      setMenu({ kind: 'selection', text, message, sources: selectionDocuments(containerRef.current!, range),
+      const sources = selectionDocuments(containerRef.current!, range);
+      // 打开菜单时保存原文选区，保留 Markdown 标记，跨消息也不混入时间和按钮文字。
+      const markdownText = sources.map((source) => {
+        const content = allMessages.find((item) => item.id === source.documentId)!.content;
+        const start = source.start ?? 0;
+        return markdownSelection(content, start, source.length === undefined ? content.length : start + source.length);
+      }).join('\n\n');
+      setMenu({ kind: 'selection', text, message, sources, markdownText,
         x: anchor?.x ?? event.clientX, y: anchor?.y ?? event.clientY, selectionBounds: anchor?.selectionBounds });
       return;
     }

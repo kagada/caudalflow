@@ -120,7 +120,9 @@
     "react-syntax-highlighter": "^16.1.1",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "tailwindcss": "^4.2.2",
+    "unified": "^11.0.5",
     "zod": "^3.25.76",
     "zustand": "^5.0.12"
   },

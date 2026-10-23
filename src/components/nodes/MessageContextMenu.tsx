@@ -8,7 +8,7 @@ import { useCancelLayer } from '../../hooks/useCancelLayer';
 import { isAndroid } from '../../services/platform';
 import { selectionMenuPosition, type SelectionMenuBounds } from '../../utils/selectionMenuPosition';
 
-export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[]; selectionBounds?: SelectionMenuBounds } & ({ kind: 'selection'; text: string; message?: ChatMessage } | { kind: 'message'; message: ChatMessage });
+export type MenuTarget = { x: number; y: number; sources?: ReferenceSelection[]; markdownText?: string; selectionBounds?: SelectionMenuBounds } & ({ kind: 'selection'; text: string; message?: ChatMessage } | { kind: 'message'; message: ChatMessage });
 
 interface Props {
   target: MenuTarget;
@@ -32,6 +32,7 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
   const [copyingReference, setCopyingReference] = useState(false);
   const message = target.message;
   const text = target.kind === 'selection' ? target.text : target.message.content;
+  const markdownText = target.kind === 'message' ? target.message.content : target.markdownText;
   const presets = useSettingsStore((state) => state.promptPresets);
   const ref = useRef<HTMLDivElement>(null);
   useCancelLayer(true, close, 10000);
@@ -68,8 +69,8 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
     return () => { document.removeEventListener('pointerdown', outside); };
   }, [close]);
   const perform = (action: () => void) => { action(); close(); };
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(text); close(); }
+  const copy = async (value: string) => {
+    try { await navigator.clipboard.writeText(value); close(); }
     catch { setError(t('menu.copyFailed')); }
   };
   // 底色独立绘制，避免加宽左右留白时透明边框吃掉圆角。
@@ -133,11 +134,13 @@ export function MessageContextMenu({ target, busy, close, explore, revise, remov
       ) : (
         <div role="menu" aria-label={t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}>
           <div className="px-3 py-1 text-[11px] text-text-muted">{t(target.kind === 'selection' ? 'menu.selection' : 'menu.message')}</div>
-          {splitItem('copy', t(target.kind === 'selection' ? 'menu.copySelection' : 'menu.copyMessage'), copy, false,
-            copyReference && <button role="menuitem" disabled={busy || copyingReference} className={buttonClass} onClick={async () => {
+          {splitItem('copy', t(target.kind === 'selection' ? 'menu.copySelection' : 'menu.copyMessage'), () => void copy(text), false, <>
+            <button role="menuitem" disabled={markdownText === undefined} className={buttonClass} onClick={() => { if (markdownText !== undefined) void copy(markdownText); }}>{t('menu.copyMarkdown')}</button>
+            {copyReference && <button role="menuitem" disabled={busy || copyingReference} className={buttonClass} onClick={async () => {
             setCopyingReference(true); setError('');
             try { await copyReference(); close(); } catch (failure) { setError(String(failure)); } finally { setCopyingReference(false); }
-          }}>{copyingReference ? t('menu.copyingReference') : t('menu.copyReference')}</button>, !copyReference)}
+          }}>{copyingReference ? t('menu.copyingReference') : t('menu.copyReference')}</button>}
+          </>, false)}
           {splitItem('branch', t(target.kind === 'selection' ? 'menu.branch' : 'menu.branchMessage'), () => perform(() => explore(text, '')), busy, <>
                 <button role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(text, t('menu.summaryPrompt')))}>{t('menu.summaryAction')}</button>
                 {presets.map((preset) => <button key={preset.id} role="menuitem" disabled={busy} className={buttonClass} onClick={() => perform(() => explore(text, preset.content))}>{preset.name}</button>)}

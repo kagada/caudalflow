@@ -4,6 +4,7 @@
     "rewriteQuestion": "How would you like this answer changed?",
     "rewritePlaceholder": "For example: Make it shorter and keep the examples.",
     "copyReference": "Copy reference",
+    "copyMarkdown": "Copy Markdown source",
     "copyingReference": "Preparing reference…",
     "summaryAction": "Summarize (new branch)",
     "versions": "Version history…",
