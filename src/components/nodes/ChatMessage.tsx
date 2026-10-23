@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { ReferenceBubble } from './ReferenceBubble';
 import { highlightSegments, rehypeReferenceHighlights, type HighlightRange } from '../../utils/referenceHighlights';
 
-import { messageBacklinks, type ReferenceBacklink } from '../../utils/referenceBacklinks';
+import { messageBacklinks, rehypeReferenceBacklinks, type ReferenceBacklink } from '../../utils/referenceBacklinks';
 import { ReferenceBacklinks } from './ReferenceBacklinks';
 import { UsageStatistics } from './UsageStatistics';
 import { answerUsage } from '../../utils/tokenUsage';
@@ -70,7 +70,9 @@ export const ChatMessage = memo(function ChatMessage({
   const components = useMemo<Components>(() => {
     const controls = (node?: Element, before?: number) => {
       const start = node?.position?.start.offset, end = before ?? node?.position?.end.offset;
-      return start !== undefined && end !== undefined ? <ReferenceBacklinks backlinks={links} start={start} end={end} preview={setPreviewRanges} /> : null;
+      const indices = node?.properties.dataBacklinkIndices as number[] | undefined;
+      const anchored = (indices ?? []).map((index) => links[index]);
+      return start !== undefined && end !== undefined ? <ReferenceBacklinks backlinks={anchored} start={start} end={end} preview={setPreviewRanges} /> : null;
     };
     return {
       code({ className, children, node, ...props }) {
@@ -247,7 +249,7 @@ export const ChatMessage = memo(function ChatMessage({
           )}
           <Markdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[[rehypeReferenceHighlights, { ranges, content: message.content }]]}
+            rehypePlugins={[[rehypeReferenceBacklinks, { backlinks: links }], [rehypeReferenceHighlights, { ranges, content: message.content }]]}
             components={components}
           >
             {message.content || t(isStreaming ? message.reasoning ? 'chat.waitingForAnswer' : 'chat.waitingForResponse' : 'chat.noAnswer')}

@@ -1,4 +1,5 @@
 import type { ChatMessage, Conversation, ReferenceSource } from '../types/chat';
+import type { Element, Root } from 'hast';
 import { effectiveReferenceSources, referenceRanges, type HighlightRange } from './referenceHighlights';
 
 export interface ReferenceBacklink {
@@ -47,4 +48,31 @@ export function messageBacklinks(message: ChatMessage, backlinks: ReferenceBackl
 
 export function blockBacklinks(backlinks: MessageBacklink[], start: number, end: number): MessageBacklink[] {
   return backlinks.filter((item) => item.ranges.some((range) => range.start < end && range.end > start));
+}
+
+// 跨段引用只在最后一个被引用的正文块显示入口；按实际渲染块定位，兼容尾部换行和表格标记。
+export function rehypeReferenceBacklinks(options: { backlinks: MessageBacklink[] }) {
+  return (tree: Root) => {
+    const blocks: { node: Element; start: number; end: number }[] = [];
+    const visit = (parent: Root | Element) => {
+      for (const node of parent.children) {
+        if (node.type !== 'element') continue;
+        const start = node.position?.start.offset;
+        let end = node.position?.end.offset;
+        const listItem = node.tagName === 'li' && !node.children.some((child) => child.type === 'element' && child.tagName === 'p');
+        if (listItem) end = node.children.find((child) => child.type === 'element' && ['ul', 'ol'].includes(child.tagName))?.position?.start.offset ?? end;
+        if ((['p', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th', 'td'].includes(node.tagName) || listItem) && start !== undefined && end !== undefined) {
+          node.properties.dataBacklinkIndices = [];
+          blocks.push({ node, start, end });
+        }
+        visit(node);
+      }
+    };
+    visit(tree);
+    options.backlinks.forEach((link, index) => {
+      const last = blocks.filter((block) => blockBacklinks([link], block.start, block.end).length)
+        .sort((a, b) => b.end - a.end || b.start - a.start)[0];
+      if (last) (last.node.properties.dataBacklinkIndices as number[]).push(index);
+    });
+  };
 }

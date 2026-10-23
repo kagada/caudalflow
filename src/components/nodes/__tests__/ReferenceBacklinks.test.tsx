@@ -46,6 +46,28 @@ async function preview(questionId: string) {
 const marks = () => [...container.querySelectorAll('mark')].map((mark) => mark.textContent).join('');
 
 describe('forward reference navigation', () => {
+  it.each([
+    ['三段正文', '第一段。\n\n第二段 **重点**。\n\n第三段。\n\n', 'p:last-of-type', '第一段。第二段 重点。第三段。'],
+    ['嵌套列表', '- 第一项\n  - 第二项\n  - 第三项', 'li:last-child', '第一项第二项第三项'],
+    ['表格', '| 列 |\n| -- |\n| 第一行 |\n| 第二行 |\n', 'td:last-child', '列第一行第二行'],
+  ])('keeps one button at the end of a reference spanning %s and previews the full quote', async (_label, text, lastBlock, highlighted) => {
+    const ref = reference('multi', 'qb', 0, text.length);
+    ref.reference!.quote = text;
+    ref.reference!.sources[0].documentText = text;
+    await act(async () => {
+      useChatStore.getState().setConversationMessages('a', [{ id: 'answer', role: 'assistant', content: text, versionId: 1, timestamp: 0 }]);
+      useChatStore.getState().setConversationMessages('b', [ref, { id: 'qb', role: 'user', content: '解释这份引用', timestamp: 0 }]);
+    });
+    expect(container.querySelectorAll('[data-backlink-count]')).toHaveLength(1);
+    const source = container.querySelector('[data-id="a"]')!;
+    expect([...source.querySelectorAll(lastBlock)].at(-1)?.contains(button())).toBe(true);
+    await act(async () => button().click());
+    expect(document.querySelectorAll('[data-backlink-question]')).toHaveLength(1);
+    await preview('qb');
+    expect(marks()).toBe(highlighted);
+    expect(container.querySelectorAll('[data-backlink-count]')).toHaveLength(1);
+  });
+
   it('groups overlapping references by question and previews each range without persistent highlights', async () => {
     expect(container.querySelectorAll('[data-backlink-count]')).toHaveLength(1);
     expect(button().dataset.backlinkCount).toBe('2'); expect(marks()).toBe('');

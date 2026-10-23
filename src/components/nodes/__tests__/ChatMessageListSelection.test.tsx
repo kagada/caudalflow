@@ -227,7 +227,7 @@ describe('canvas selection keeps conversation content cached', () => {
     });
     const marks = () => [...container.querySelectorAll('mark')].map((mark) => mark.textContent).join('');
     expect(marks()).toBe('');
-    expect(container.querySelectorAll('[data-backlink-count]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-backlink-count]')).toHaveLength(1);
     act(() => container.querySelector<HTMLButtonElement>('[data-backlink-count]')!.click());
     act(() => document.querySelector('[data-backlink-question]')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
     const branchMarks = marks();
