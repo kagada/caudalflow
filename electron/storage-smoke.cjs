@@ -59,6 +59,10 @@ async function runSmokeTest(window, app, storage) {
     await waitFor(window, "!!window.caudalflowFlush && !!document.querySelector('.react-flow')");
     const settings = { state: { llmConfig: { providerId: 'custom', providerName: 'Desktop test', endpoint: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'desktop-test-key', model: 'desktop-test-model', temperature: 0.7, maxTokens: 2048, mockDelay: 30 }, welcomeDismissed: true, language: 'zh', theme: 'light' }, version: 0 };
     await window.webContents.executeJavaScript(`localStorage.setItem('caudalflow-settings', ${JSON.stringify(JSON.stringify(settings))}); localStorage.setItem('i18nextLng','zh'); window.caudalflowFlush()`);
+    // 发送入口从独立模型目录读取配置，自检也必须显式选择测试模型。
+    const models = { state: { providers: [{ id: 'custom', name: 'Desktop test', endpoint: settings.state.llmConfig.endpoint, apiKey: 'desktop-test-key', enabled: true,
+      models: [{ id: 'desktop-test-model', name: 'desktop-test-model', enabled: true }] }], defaultModel: { providerId: 'custom', providerName: 'Desktop test', modelId: 'desktop-test-model' } }, version: 0 };
+    await window.webContents.executeJavaScript(`localStorage.setItem('caudalflow-local-models', ${JSON.stringify(JSON.stringify(models))})`);
     let loaded = once(window.webContents, 'did-finish-load'); window.webContents.reload(); await loaded;
     await waitFor(window, "!!window.caudalflowFlush && !!document.querySelector('button[aria-label=\"新建对话\"]')");
     await window.webContents.executeJavaScript("document.querySelector('button[aria-label=\"新建对话\"]').click()");
@@ -96,6 +100,8 @@ async function runSmokeTest(window, app, storage) {
     await waitFor(window, "[...document.querySelectorAll('[data-token-usage]')].some(item=>item.textContent.includes('本会话累计') && item.textContent.includes('输入 220'))");
 
     const answerId = stored.data.conversations[nodeId].messages.at(-1).id;
+    // 首次回答只有正文版本，生成占位符不能进入数据库或历史版本弹窗。
+    assert.equal((await storage.call('versions', { id: workspaceId, documentId: answerId })).length, 1);
     const questionId = stored.data.conversations[nodeId].messages.find((message) => message.role === 'user').id;
     const usageIs = (id, count) => `document.querySelector('[data-message-id="${id}"] [data-token-usage]')?.textContent.includes('输入 ${count}')`;
     assert(await window.webContents.executeJavaScript(`!document.querySelector('[data-message-id="${questionId}"] [data-token-usage]')`));
@@ -113,6 +119,8 @@ async function runSmokeTest(window, app, storage) {
     await waitFor(window, "!!document.querySelector('[data-submenu]')");
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[data-submenu] button')].find(button => button.textContent==='历史版本…').click()");
     await waitFor(window, "!!document.querySelector('[aria-label=\"文档版本\"] button') && [...document.querySelectorAll('[aria-label=\"文档版本\"] button')].some(button => button.textContent.includes('SQLite 流式回复成功') && !button.textContent.includes('重答'))");
+    assert.equal((await storage.call('versions', { id: workspaceId, documentId: answerId })).length, 2);
+    assert(await window.webContents.executeJavaScript("!document.querySelector('[aria-label=\"文档版本\"]').textContent.includes('空内容')"));
     await window.webContents.executeJavaScript("[...document.querySelectorAll('[aria-label=\"文档版本\"] button')].find(button => button.textContent.includes('SQLite 流式回复成功') && !button.textContent.includes('重答')).click()");
     await waitFor(window, "!document.querySelector('[aria-label=\"文档版本\"]') && !document.body.innerText.includes('回复成功·重答')");
     await window.webContents.executeJavaScript('window.caudalflowFlush()');
@@ -310,8 +318,8 @@ async function runSmokeTest(window, app, storage) {
     })()`);
     // 用真实鼠标验证菜单在画布和卡片正文上都能关闭，保留正常的画布事件处理。
     for (const target of ['canvas', 'message']) {
-      await window.webContents.executeJavaScript("document.querySelector('div.h-9 button').click()");
-      await waitFor(window, "!!document.querySelector('div.h-9 .max-h-60')");
+      await window.webContents.executeJavaScript("document.querySelector('div.min-h-9 button').click()");
+      await waitFor(window, "!!document.querySelector('div.min-h-9 .max-h-60')");
       const point = await window.webContents.executeJavaScript(`(() => {
         if ('${target}' === 'canvas') {
           const pane = document.querySelector('.react-flow__pane');
@@ -331,11 +339,11 @@ async function runSmokeTest(window, app, storage) {
       window.webContents.sendInputEvent({type:'mouseMove',...point});
       window.webContents.sendInputEvent({type:'mouseDown',...point,button:'left',clickCount:1});
       window.webContents.sendInputEvent({type:'mouseUp',...point,button:'left',clickCount:1});
-      await waitFor(window, "!document.querySelector('div.h-9 .max-h-60')");
+      await waitFor(window, "!document.querySelector('div.min-h-9 .max-h-60')");
     }
     for (const entry of ['title', 'dropdown']) {
       await window.webContents.executeJavaScript(`(async () => {
-        if ('${entry}' === 'dropdown') { document.querySelector('div.h-9 button').click(); await new Promise(resolve=>setTimeout(resolve,0)); }
+        if ('${entry}' === 'dropdown') { document.querySelector('div.min-h-9 button').click(); await new Promise(resolve=>setTimeout(resolve,0)); }
         const buttons = [...document.querySelectorAll('button')].filter(button=>button.title==='重命名工作区');
         buttons['${entry}' === 'dropdown' ? 1 : 0].click();
       })()`);
@@ -486,7 +494,7 @@ async function runSmokeTest(window, app, storage) {
     loaded=once(window.webContents,'did-finish-load'); window.webContents.reload(); await loaded;
     await waitFor(window,`!!window.caudalflowFlush && document.querySelector('.react-flow__viewport')?.style.transform===${JSON.stringify(savedTransform)}`);
     const selectWorkspace = async (name) => {
-      await window.webContents.executeJavaScript(`document.querySelector('div.h-9 button').click()`);
+      await window.webContents.executeJavaScript(`document.querySelector('div.min-h-9 button').click()`);
       await window.webContents.executeJavaScript(`[...document.querySelectorAll('div.max-h-60 > button')].find(button=>button.textContent.includes(${JSON.stringify(name)})).click()`);
     };
     await selectWorkspace(otherWorkspace.metadata.name);

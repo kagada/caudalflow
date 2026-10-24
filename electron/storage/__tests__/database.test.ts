@@ -355,6 +355,101 @@ describe('SQLite workspace and independent local history', () => {
     } finally { copy.close(); }
   });
 
+  it('creates the first answer version only after generation and recovers drafts without a baseline version', async () => {
+    const data = example();
+    Object.assign(data.conversations.c1.messages[1], { content: '', reasoning: undefined, replyToId: 'q1' });
+    data.conversations.c1.isStreaming = true; data.conversations.c1.streamingMessageId = 'a1';
+    const saved = await workspace.save(data, { history: false });
+    expect(saved.versions.a1).toBeNull();
+    expect(await workspace.listVersions('a1')).toEqual([]);
+    data.conversations.c1.messages[1].content = '生成中的回答';
+    await workspace.save(data, { history: false });
+    const filename = workspace.filename; await workspace.close();
+    workspace = await WorkspaceDatabase.open(filename, join(root, 'personal'));
+    const recovered = (await workspace.load()).data;
+    expect(recovered.conversations.c1.messages[1]).toMatchObject({ content: '生成中的回答', generationStatus: 'interrupted', replyToId: 'q1' });
+    expect(recovered.conversations.c1.messages[1].versionId).toBeUndefined();
+    expect(workspace.db.prepare("SELECT COUNT(*) n FROM document_versions WHERE document_id='a1'").get().n).toBe(0);
+    await workspace.save(recovered);
+    expect(await workspace.listVersions('a1')).toHaveLength(1);
+    const first = (await workspace.load()).data;
+    data.conversations.c1.isStreaming = false; data.conversations.c1.messages[1].content = '重新回答';
+    await workspace.save(data);
+    expect(await workspace.listVersions('a1')).toHaveLength(2);
+    await workspace.save(first);
+    expect((await workspace.load()).data.conversations.c1.messages[1].versionId).toBe(first.conversations.c1.messages[1].versionId);
+    expect(workspace.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('skips new empty completed answer versions but retains reasoning and image content', async () => {
+    const data = example(); const answer = data.conversations.c1.messages[1];
+    Object.assign(answer, { content: ' \n\t', reasoning: undefined, generationStatus: 'interrupted', replyToId: 'q1' });
+    answer.usage = [{ id: 'empty-request', purpose: 'answer', providerId: 'p1', model: 'm1', createdAt: 1, status: 'interrupted' }];
+    await workspace.save(data);
+    expect(await workspace.listVersions('a1')).toEqual([]);
+    const loaded = (await workspace.load()).data;
+    expect(loaded.conversations.c1.messages[1]).toMatchObject({ replyToId: 'q1', generationStatus: 'interrupted', usage: answer.usage });
+    expect(loaded.conversations.c1.messages[1].versionId).toBeUndefined();
+    await workspace.save(loaded);
+    answer.reasoning = '只生成了思考';
+    await workspace.save(data);
+    expect(await workspace.listVersions('a1')).toMatchObject([{ preview: '只生成了思考' }]);
+    answer.reasoning = undefined; answer.images = [{ mimeType: 'image/png', base64: Buffer.from('image').toString('base64') }];
+    await workspace.save(data);
+    const imageVersion = (await workspace.load()).data.conversations.c1.messages[1].versionId;
+    const filename = workspace.filename; await workspace.close();
+    workspace = await WorkspaceDatabase.open(filename, join(root, 'personal'));
+    expect(await workspace.listVersions('a1')).toHaveLength(2);
+    expect((await workspace.listVersions('a1'))[0].preview).toBe('图片');
+    expect((await workspace.readVersion('a1', imageVersion)).images).toEqual(answer.images);
+  });
+
+  it('preserves imported empty historical answers through saving and reopening', async () => {
+    const data = example(); const answer = data.conversations.c1.messages[1];
+    answer.previousVersions = [{ content: '', reasoning: '', timestamp: 1 }, { content: ' \n', reasoning: '', timestamp: 2 }];
+    await workspace.save(data);
+    const before = workspace.db.prepare("SELECT * FROM document_versions WHERE document_id='a1' ORDER BY id").all();
+    expect(before.map((row: { content: string }) => row.content)).toEqual(['', ' \n', '原回答']);
+    await workspace.save(data);
+    const filename = workspace.filename; await workspace.close();
+    workspace = await WorkspaceDatabase.open(filename, join(root, 'personal'));
+    expect(workspace.db.prepare("SELECT * FROM document_versions WHERE document_id='a1' ORDER BY id").all()).toEqual(before);
+  });
+
+  it('preserves old empty answer versions and selected IDs on repeated open and save', async () => {
+    await workspace.save(example());
+    const original = (await workspace.load()).data;
+    const history = await workspace.listHistory();
+    const emptyId = Number(workspace.db.prepare('INSERT INTO document_versions(document_id,content,created_at) VALUES (?,?,?)').run('a1', ' \n\t', 1).lastInsertRowid);
+    // 旧文件中的当前空版本和未完成草稿都属于原有数据，打开时不自动修正。
+    workspace.db.prepare("INSERT INTO documents(id,conversation_id,position,role,content,created_at,reply_to_id) VALUES ('a2','c1',2,'assistant','',300,'q1')").run();
+    const currentEmpty = Number(workspace.db.prepare("INSERT INTO document_versions(document_id,content,created_at) VALUES ('a2','',300)").run().lastInsertRowid);
+    workspace.db.prepare("UPDATE documents SET current_version_id=? WHERE id='a2'").run(currentEmpty);
+    workspace.db.prepare("INSERT INTO generation_drafts VALUES ('a2','尚未完成的回答',NULL,301,'[]')").run();
+    const versionsBefore = workspace.db.prepare('SELECT * FROM document_versions ORDER BY id').all();
+    const documentsBefore = workspace.db.prepare('SELECT * FROM documents ORDER BY id').all();
+    const filename = workspace.filename; await workspace.close();
+    workspace = await WorkspaceDatabase.open(filename, join(root, 'personal'));
+    expect(workspace.db.prepare('SELECT * FROM document_versions ORDER BY id').all()).toEqual(versionsBefore);
+    expect(workspace.db.prepare('SELECT * FROM documents ORDER BY id').all()).toEqual(documentsBefore);
+    expect(await workspace.listVersions('a1')).toHaveLength(2);
+    expect((await workspace.readVersion('a1', emptyId)).content).toBe(' \n\t');
+    expect(await workspace.listVersions('a2')).toHaveLength(1);
+    const loaded = (await workspace.load()).data;
+    expect(loaded.conversations.c1.messages[1]).toEqual(original.conversations.c1.messages[1]);
+    expect(loaded.conversations.c1.messages[2]).toMatchObject({ content: '尚未完成的回答', replyToId: 'q1', generationStatus: 'interrupted' });
+    expect(loaded.conversations.c1.messages[2].versionId).toBe(currentEmpty);
+    expect(await workspace.listHistory()).toEqual(history);
+    expect(workspace.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    // 保存其他内容、选用旧空版本，也不能把旧历史当成待清理数据。
+    loaded.conversations.c1.messages[1] = await workspace.readVersion('a1', emptyId);
+    await workspace.save(loaded);
+    expect((await workspace.load()).data.conversations.c1.messages[1].versionId).toBe(emptyId);
+    expect(await workspace.listVersions('a2')).toHaveLength(2);
+    await workspace.close(); workspace = await WorkspaceDatabase.open(filename, join(root, 'personal'));
+    for (const row of versionsBefore) expect(workspace.db.prepare('SELECT * FROM document_versions WHERE id=?').get(row.id)).toEqual(row);
+  });
+
   it('keeps draft checkpoints out of immutable revisions and recovers interrupted output', async () => {
     (await workspace.save(example()));
     const next = example(); next.conversations.c1.isStreaming = true; next.conversations.c1.streamingMessageId = 'a1';

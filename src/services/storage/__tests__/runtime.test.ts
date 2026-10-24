@@ -57,6 +57,19 @@ describe('desktop command and persistence coordination', () => {
     expect(workspace.getState().getActiveWorkspace()?.name).toBe('新名称');
   });
 
+  it('clears stale version IDs when saving an empty answer without a version', async () => {
+    const previous = fake.request.getMockImplementation()!;
+    fake.request.mockImplementation(async (action, payload) => {
+      const result = await previous(action, payload);
+      return action === 'save' ? { ...result, versions: { m1: null } } : result;
+    });
+    const store = chat.useChatStore.getState();
+    store.addOrUpdateMessage('c1', { ...store.getMessages('c1')[0], content: '', versionId: 42 });
+    await runtime.flushDesktopStorage();
+    expect(store.getMessages('c1')[0].versionId).toBeUndefined();
+    expect(runtime.useStorageStatus.getState().error).toBeNull();
+  });
+
   it('groups streaming tokens into one complete content operation', async () => {
     const store = chat.useChatStore.getState();
     store.addMessage('c1', 'user', '新问题'); store.addMessage('c1', 'assistant', ''); store.setStreaming('c1', true);

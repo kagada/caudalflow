@@ -68,7 +68,9 @@ function acceptSavedVersions(id: string, submitted: WorkspaceData, result: Saved
       const sent = submitted.conversations[nodeId]?.messages.find((item) => item.id === message.id);
       const usage = mergeUsage(result.documentUsage?.[message.id], message.usage);
       const current = usage.length && JSON.stringify(usage) !== JSON.stringify(message.usage) ? { ...message, usage } : message;
-      return !conversation.isStreaming && sent && sent.content === message.content && sent.reasoning === message.reasoning && JSON.stringify(sent.images) === JSON.stringify(message.images) && result.versions?.[message.id] && result.versions[message.id] !== message.versionId ? { ...current, versionId: result.versions[message.id] } : current;
+      // 空回答可以没有正式版本，保存后也要移除它曾经携带的旧版本编号。
+      const versionId = result.versions?.[message.id];
+      return !conversation.isStreaming && sent && sent.content === message.content && sent.reasoning === message.reasoning && JSON.stringify(sent.images) === JSON.stringify(message.images) && versionId !== undefined && (versionId ?? undefined) !== message.versionId ? { ...current, versionId: versionId ?? undefined } : current;
     });
     const usage = mergeUsage(result.usage?.[nodeId], conversation.usage);
     const different = messages.some((message, index) => message !== conversation.messages[index]) || Boolean(usage.length && JSON.stringify(usage) !== JSON.stringify(conversation.usage));

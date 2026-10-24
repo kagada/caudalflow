@@ -17,6 +17,9 @@ const mergeUsage = (...lists) => {
 };
 const usageJson = (records) => records.length ? JSON.stringify(records) : null;
 const readUsage = (json) => JSON.parse(json ?? '[]').map((record) => record.status === 'pending' ? { ...record, status: 'interrupted' } : record);
+// 回答占位符没有可恢复的内容；思考或图片本身也算有效内容。
+const isEmptyAnswer = (message) => message.role === 'assistant' && (message.kind ?? 'message') === 'message'
+    && !message.content.trim() && !message.reasoning?.trim() && !message.images?.length;
 // 版本只比较可变化的内容，类型固定归文档，不为正文额外保存指纹。
 const versionContent = (message) => canonical({
     content: message.kind === 'reference' ? message.reference.summary : message.content,
@@ -232,7 +235,7 @@ class WorkspaceDatabase {
     }
     // 引用主体和来源独立读取，来源被删除后，保留的原文和图片仍可使用。
     async messageFromRow(row, documentId, timestamp) {
-        const message = { id: documentId, role: row.role, kind: row.kind, timestamp, versionId: row.version_id, content: row.content };
+        const message = { id: documentId, role: row.role, kind: row.kind, timestamp, ...(row.version_id !== null ? { versionId: row.version_id } : {}), content: row.content };
         const usage = readUsage(row.usage_json);
         if (usage.length)
             message.usage = usage;
@@ -278,6 +281,9 @@ class WorkspaceDatabase {
             if (JSON.stringify(versionContent((await this.messageFromRow(row, documentId, message.timestamp)))) === expected)
                 return row.id;
         }
+        // 只阻止新回答产生空版本；已有版本仍可选用，导入的旧历史也必须原样保留。
+        if (importedTime === undefined && isEmptyAnswer(message))
+            return null;
         // 撤销可恢复被清理的原编号；已占用编号绝不重绑到另一篇文档。
         const preferredId = message.versionId && !(await this.db.get('SELECT id FROM document_versions WHERE id=?', [message.versionId])) ? message.versionId : null;
         const alreadyVersioned = (await this.db.get('SELECT 1 FROM document_versions WHERE document_id=? LIMIT 1', [documentId]));
@@ -351,18 +357,21 @@ class WorkspaceDatabase {
                     let selectedVersion;
                     if (generating) {
                         // 重生成以当前选中版本为基线，不能误取最近创建的其他版本。
-                        selectedVersion = owner.current_version_id ?? (await this.version(message.id, { ...message, content: '', reasoning: undefined, images: [] }));
+                        // 首次生成只有草稿，不为尚未产生内容的回答创建空版本。
+                        selectedVersion = owner.current_version_id;
                         (await this.db.run('INSERT INTO generation_drafts VALUES (?,?,?,?,?) ON CONFLICT(document_id) DO UPDATE SET content=excluded.content,reasoning=excluded.reasoning,updated_at=excluded.updated_at,images_json=excluded.images_json', [message.id, message.content, message.reasoning ?? null, Date.now(), JSON.stringify(message.images ?? [])]));
                     }
                     else {
                         selectedVersion = (await this.version(message.id, message));
                         (await this.db.run('DELETE FROM generation_drafts WHERE document_id=?', [message.id]));
                     }
-                    const saved = (await this.db.get('SELECT * FROM document_versions WHERE id=?', [selectedVersion]));
+                    const saved = selectedVersion === null ? { content: '', reasoning: null, reply_to_id: message.replyToId ?? null,
+                        triggered_by: message.triggeredBy ?? null, reference_for_id: message.referenceForId ?? null,
+                        generation_status: message.generationStatus ?? null } : (await this.db.get('SELECT * FROM document_versions WHERE id=?', [selectedVersion]));
                     let documentUsage = mergeUsage(JSON.parse(owner.usage_json ?? '[]'), message.usage);
                     const latestAnswer = documentUsage.findLast((record) => record.purpose === 'answer');
                     // 完成的回答用量绑定实际保存版本，重生成累计与版本展示分别读取。
-                    if (!generating && latestAnswer && latestAnswer.versionId === undefined && latestAnswer.status !== 'pending'
+                    if (!generating && selectedVersion !== null && latestAnswer && latestAnswer.versionId === undefined && latestAnswer.status !== 'pending'
                         && (latestAnswer.status !== 'interrupted' || selectedVersion !== owner.current_version_id)) {
                         documentUsage = documentUsage.map((record) => record.id === latestAnswer.id ? { ...record, versionId: selectedVersion } : record);
                     }
@@ -491,7 +500,12 @@ class WorkspaceDatabase {
         return (await this.load());
     }
     async listVersions(documentId) {
-        return (await this.db.query('SELECT v.id,v.created_at AS createdAt,substr(COALESCE(r.summary,v.content),1,100) AS preview FROM document_versions v LEFT JOIN document_references r ON r.version_id=v.id WHERE v.document_id=? ORDER BY v.id DESC', [documentId]));
+        const rows = await this.db.query(`SELECT v.id,v.created_at AS createdAt,COALESCE(r.summary,v.content) AS content,v.reasoning,
+            EXISTS (SELECT 1 FROM version_attachments a WHERE a.version_id=v.id) AS hasImages
+            FROM document_versions v LEFT JOIN document_references r ON r.version_id=v.id WHERE v.document_id=? ORDER BY v.id DESC`, [documentId]);
+        // 只有思考或图片的回答也有内容，列表中显示它实际保留的内容。
+        return rows.map(({ id, createdAt, content, reasoning, hasImages }) => ({ id, createdAt,
+            preview: (content.trim() ? content : reasoning?.trim() ? reasoning : hasImages ? '图片' : '').slice(0, 100) }));
     }
     // 切换版本只读取已保存结果，由上层内容操作选择它，不重新请求模型。
     async readVersion(documentId, versionId) {
